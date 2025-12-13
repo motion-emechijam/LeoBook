@@ -49,9 +49,9 @@ async def process_match_task(match_data: dict, browser: Browser):
         # --- H2H Tab & Expansion ---
         h2h_tab_selector = get_selector("match_page", "nav_tab_h2h")
         h2h_data = {}
-        if h2h_tab_selector and await page.locator(h2h_tab_selector).is_visible(timeout=5000):
+        if h2h_tab_selector and await page.locator(h2h_tab_selector).is_visible(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT):
             try:
-                await page.click(h2h_tab_selector, timeout=5000)
+                await page.click(h2h_tab_selector, timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                 await page.wait_for_load_state("domcontentloaded", timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                 await asyncio.sleep(3.0)
                 await fs_universal_popup_dismissal(page, "h2h_tab")
@@ -60,17 +60,17 @@ async def process_match_task(match_data: dict, browser: Browser):
                 show_more_selector = "button:has-text('Show more matches'), a:has-text('Show more matches')"
                 try:
                     # Wait shorter time and handle case where buttons don't exist
-                    await page.wait_for_selector(show_more_selector, timeout=150000)
+                    await page.wait_for_selector(show_more_selector, timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                     show_more_buttons = page.locator(show_more_selector).first  # Try first one
                     if await show_more_buttons.count() > 0:
                         print("    [H2H Expansion] Expanding available match history...")
                         try:
-                            await show_more_buttons.click(timeout=50000)
+                            await show_more_buttons.click(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                             await asyncio.sleep(1.0)
                             # Check if clicking reveals more buttons
                             second_button = page.locator(show_more_selector).nth(1)
                             if await second_button.count() > 0:
-                                await second_button.click(timeout=5000)
+                                await second_button.click(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                                 await asyncio.sleep(1.0)
                         except Exception:
                             print("    [H2H Expansion] Some expansion buttons failed, but continuing...")
@@ -101,9 +101,9 @@ async def process_match_task(match_data: dict, browser: Browser):
         standings_tab_selector = get_selector("match_page", "nav_tab_standings")
         standings_data = []
         standings_league = "Unknown"
-        if standings_tab_selector and await page.locator(standings_tab_selector).is_visible(timeout=5000):
+        if standings_tab_selector and await page.locator(standings_tab_selector).is_visible(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT):
             try:
-                await page.click(standings_tab_selector, timeout=5000)
+                await page.click(standings_tab_selector, timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                 await page.wait_for_load_state("domcontentloaded", timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
                 await analyze_page_and_update_selectors(page, "standings_tab")
                 await fs_universal_popup_dismissal(page, "standings_tab")
@@ -328,7 +328,7 @@ async def run_flashscore_analysis(browser: Browser):
 
         try:
             scheduled_tab_sel = get_selector("home_page", "tab_scheduled")
-            if scheduled_tab_sel and await page.locator(scheduled_tab_sel).is_visible(timeout=5000):
+            if scheduled_tab_sel and await page.locator(scheduled_tab_sel).is_visible(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT):
                 await page.click(scheduled_tab_sel)
                 print("    [Info] Clicked scheduled tab.")
                 await asyncio.sleep(2.0)

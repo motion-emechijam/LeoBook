@@ -1,0 +1,17 @@
+Error Context: process_match_task_Simba_vs_Groupe Bazano
+Timestamp: 2025-12-10T14:04:04.533439
+
+Traceback (most recent call last):
+  File "c:\Users\Admin\Desktop\ProProjection\LeoBook - Copy\Sites\flashscore.py", line 147, in process_match_task
+    print(f"      [❌ No Signal] {match_label}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\Admin\Desktop\ProProjection\LeoBook - Copy\Helpers\utils.py", line 23, in write
+    f.write(obj)
+    ~~~~~~~^^^^^
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 7: character maps to <undefined>
+
+--- Error Message ---
+'charmap' codec can't encode character '\u274c' in position 7: character maps to <undefined>

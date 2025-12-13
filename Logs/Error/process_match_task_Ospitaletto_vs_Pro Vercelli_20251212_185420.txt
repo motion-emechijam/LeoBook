@@ -1,0 +1,27 @@
+Error Context: process_match_task_Ospitaletto_vs_Pro Vercelli
+Timestamp: 2025-12-12T18:54:20.211372
+
+Traceback (most recent call last):
+  File "/workspaces/LeoBook/Sites/flashscore.py", line 42, in process_match_task
+    await page.goto(full_match_url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+  File "/home/codespace/.local/lib/python3.12/site-packages/playwright/async_api/_generated.py", line 9041, in goto
+    await self._impl_obj.goto(
+  File "/home/codespace/.local/lib/python3.12/site-packages/playwright/_impl/_page.py", line 552, in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/codespace/.local/lib/python3.12/site-packages/playwright/_impl/_frame.py", line 153, in goto
+    await self._channel.send(
+  File "/home/codespace/.local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/codespace/.local/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Page.goto: Page crashed
+Call log:
+  - navigating to "https://www.flashscore.com/match/football/ospitaletto-SfaJmg0R/pro-vercelli-KjGeTD9G/?mid=K4ZwL32D", waiting until "domcontentloaded"
+
+
+--- Error Message ---
+Page.goto: Page crashed
+Call log:
+  - navigating to "https://www.flashscore.com/match/football/ospitaletto-SfaJmg0R/pro-vercelli-KjGeTD9G/?mid=K4ZwL32D", waiting until "domcontentloaded"

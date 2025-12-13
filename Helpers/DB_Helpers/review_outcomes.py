@@ -211,7 +211,7 @@ class DataValidator:
 # --- CONFIGURATION ---
 BATCH_SIZE = 5      # How many matches to review at the same time
 LOOKBACK_LIMIT = 50 # Only check the last 50 eligible matches to prevent infinite backlogs
-ENRICHMENT_CONCURRENCY = 4 # Concurrency for enriching past H2H matches
+ENRICHMENT_CONCURRENCY = 5 # Concurrency for enriching past H2H matches
 
 def _load_schedule_db() -> Dict[str, Dict]:
     """Loads the schedules.csv into a dictionary for quick lookups."""
@@ -342,6 +342,61 @@ def update_region_league_url(region_league: str, url: str):
     }
     upsert_entry(REGION_LEAGUE_CSV, entry, files_and_headers[REGION_LEAGUE_CSV], 'region_league_id')
 
+def evaluate_prediction(prediction: str, actual_score: str, home_team: str, away_team: str) -> bool:
+    """
+    Evaluates if a prediction is correct based on the actual score.
+    This function understands various betting markets.
+
+    Args:
+        prediction (str): The prediction made, e.g., "Orleans", "Orleans or Draw", "Over 2.5".
+        actual_score (str): The final score, e.g., "2-0".
+        home_team (str): The name of the home team.
+        away_team (str): The name of the away team.
+
+    Returns:
+        bool: True if the prediction was correct, False otherwise.
+    """
+    try:
+        home_goals, away_goals = map(int, actual_score.split('-'))
+        total_goals = home_goals + away_goals
+    except (ValueError, TypeError):
+        return False # Cannot determine outcome from score
+
+    # Normalize prediction string
+    prediction_lower = prediction.lower().strip()
+    home_team_lower = home_team.lower().strip()
+    away_team_lower = away_team.lower().strip()
+
+    # 1. Direct Win/Loss/Draw (e.g., "Orleans", "Versailles", "Draw")
+    if prediction_lower == home_team_lower:
+        return home_goals > away_goals
+    if prediction_lower == away_team_lower:
+        return away_goals > home_goals
+    if prediction_lower == 'draw':
+        return home_goals == away_goals
+
+    # 2. Double Chance (e.g., "Orleans or Draw", "Draw or Versailles", "Orleans or Versailles")
+    if f"{home_team_lower} or draw" in prediction_lower or f"draw or {home_team_lower}" in prediction_lower:
+        return home_goals >= away_goals
+    if f"{away_team_lower} or draw" in prediction_lower or f"draw or {away_team_lower}" in prediction_lower:
+        return away_goals >= home_goals
+    if f"{home_team_lower} or {away_team_lower}" in prediction_lower or f"{away_team_lower} or {home_team_lower}" in prediction_lower:
+        return home_goals != away_goals # Home or Away wins
+
+    # 3. Over/Under Markets (e.g., "Over 2.5", "Under 1.5")
+    if 'over' in prediction_lower and '.' in prediction_lower:
+        try:
+            value = float(prediction_lower.split('over')[1].strip())
+            return total_goals > value
+        except (ValueError, IndexError): pass
+    if 'under' in prediction_lower and '.' in prediction_lower:
+        try:
+            value = float(prediction_lower.split('under')[1].strip())
+            return total_goals < value
+        except (ValueError, IndexError): pass
+
+    return False # Return False if prediction format is not recognized
+
 def save_single_outcome(match_data: Dict, new_status: str):
     """
     Atomic Upsert to save the review result.
@@ -375,20 +430,13 @@ def save_single_outcome(match_data: Dict, new_status: str):
                     row['actual_score'] = match_data.get('actual_score', 'N/A')
                     
                     if new_status == 'reviewed':
-                        try:
-                            act_h, act_a = map(int, row['actual_score'].split('-'))
-                            act_res = "HOME" if act_h > act_a else "AWAY" if act_a > act_h else "DRAW"
-                            
-                            pred_str = row.get('Predicted Score') or row.get('predicted_score') or '0-0'
-                            if '-' in str(pred_str):
-                                pred_h, pred_a = map(int, pred_str.split('-'))
-                                pred_res = "HOME" if pred_h > pred_a else "AWAY" if pred_a > pred_h else "DRAW"
-                                row['outcome_correct'] = str(act_res == pred_res)
-                            else:
-                                row['outcome_correct'] = 'N/A'
-                        except:
-                            row['outcome_correct'] = 'Error'
-                    
+                        prediction = row.get('prediction', '')
+                        actual_score = row.get('actual_score', '')
+                        home_team = row.get('home_team', '')
+                        away_team = row.get('away_team', '')
+                        is_correct = evaluate_prediction(prediction, actual_score, home_team, away_team)
+                        row['outcome_correct'] = str(is_correct)
+
                     updated = True
                 
                 writer.writerow(row)
@@ -452,7 +500,7 @@ async def process_review_task(match, browser, semaphore):
                 print(f"    [Fail] Could not extract score.")
                 save_single_outcome({'ID': match_id}, 'review_failed')
             else:
-                print(f"    [Success] Score: {final_score}")
+                print(f"    [Success] {home_team} vs {away_team} -> Score: {final_score}")
                 match['actual_score'] = final_score
                 save_single_outcome(match, 'reviewed')
 

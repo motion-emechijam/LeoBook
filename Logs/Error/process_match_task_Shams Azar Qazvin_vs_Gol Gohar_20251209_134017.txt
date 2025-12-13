@@ -1,0 +1,20 @@
+Error Context: process_match_task_Shams Azar Qazvin_vs_Gol Gohar
+Timestamp: 2025-12-09T13:40:17.883511
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\Desktop\ProProjection\LeoBook\Sites\flashscore.py", line 45, in process_match_task
+    await page.wait_for_load_state("networkidle", timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\playwright\async_api\_generated.py", line 9088, in wait_for_load_state
+    await self._impl_obj.wait_for_load_state(state=state, timeout=timeout)
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\playwright\_impl\_page.py", line 576, in wait_for_load_state
+    return await self._main_frame.wait_for_load_state(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\playwright\_impl\_frame.py", line 273, in wait_for_load_state
+    return await self._wait_for_load_state_impl(state, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python313\Lib\site-packages\playwright\_impl\_frame.py", line 301, in _wait_for_load_state_impl
+    await waiter.result()
+playwright._impl._errors.TimeoutError: Timeout 180000ms exceeded.
+
+--- Error Message ---
+Timeout 180000ms exceeded.

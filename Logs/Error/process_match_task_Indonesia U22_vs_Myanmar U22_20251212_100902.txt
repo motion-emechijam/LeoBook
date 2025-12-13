@@ -1,0 +1,15 @@
+Error Context: process_match_task_Indonesia U22_vs_Myanmar U22
+Timestamp: 2025-12-12T10:09:02.456684
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\Desktop\ProProjection\LeoBook - Copy\Sites\flashscore.py", line 150, in process_match_task
+    prediction = RuleEngine.analyze(analysis_input)
+  File "C:\Users\Admin\Desktop\ProProjection\LeoBook - Copy\Neo\model.py", line 296, in analyze
+    home_tags = RuleEngine.generate_form_tags(home_form, home_team, standings)
+  File "C:\Users\Admin\Desktop\ProProjection\LeoBook - Copy\Neo\model.py", line 69, in generate_form_tags
+    team_to_rank = {t["team"]: t["position"] for t in standings}
+                    ~^^^^^^^^
+KeyError: 'team'
+
+--- Error Message ---
+'team'
