@@ -1,7 +1,0 @@
-
-google.generativeai
-playwright
-dotenv
-numpy
-pandas
-scikit-learn

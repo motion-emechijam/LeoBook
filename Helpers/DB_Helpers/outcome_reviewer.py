@@ -16,7 +16,7 @@ from .health_monitor import HealthMonitor
 
 # --- CONFIGURATION ---
 BATCH_SIZE = 5      # How many matches to review at the same time
-LOOKBACK_LIMIT = 50 # Only check the last 50 eligible matches to prevent infinite backlogs
+LOOKBACK_LIMIT = 500 # Only check the last 500 eligible matches to prevent infinite backlogs
 ENRICHMENT_CONCURRENCY = 5 # Concurrency for enriching past H2H matches
 
 # --- PRODUCTION CONFIGURATION ---
@@ -79,7 +79,7 @@ def get_predictions_to_review() -> List[Dict]:
                 match_date = dt.strptime(match_date_str, "%d.%m.%Y").date()
                 status = row.get('status')
 
-                if match_date < today and status not in ['reviewed', 'match_canceled', 'review_failed', 'match_postponed']:
+                if match_date <= today and status not in ['reviewed', 'match_canceled', 'review_failed', 'match_postponed']:
                     fixture_id = row.get('fixture_id')
                     # --- OPTIMIZATION: Check local DB first ---
                     if fixture_id and fixture_id in schedule_db:
@@ -116,8 +116,8 @@ def save_single_outcome(match_data: Dict, new_status: str):
 
             reader = csv.DictReader(infile)
             fieldnames = reader.fieldnames
-            if fieldnames is None: # Handle empty file case
-                fieldnames = []
+            if not fieldnames: # Handle empty file case
+                fieldnames = files_and_headers.get(PREDICTIONS_CSV, [])
 
             writer = csv.DictWriter(outfile, fieldnames=fieldnames)
             writer.writeheader()
@@ -137,7 +137,7 @@ def save_single_outcome(match_data: Dict, new_status: str):
                         is_correct = evaluate_prediction(prediction, actual_score, home_team, away_team)
                         # Only update if evaluation was successful
                         if is_correct is not None:
-                            row['outcome_correct'] = str(is_correct)
+                            row['outcome_correct'] = '1' if is_correct else '0'
 
                     updated = True
 
@@ -185,7 +185,6 @@ async def process_review_task(match: Dict, browser, semaphore: asyncio.Semaphore
         # --- Web Scraping Fallback with Retry Logic ---
         url = match.get('match_link')
         if not url:
-            
             save_single_outcome({'fixture_id': match_id}, 'no_url')
             await context.close()
             return

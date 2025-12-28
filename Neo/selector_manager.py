@@ -24,7 +24,7 @@ class SelectorManager:
         SMART ACCESSOR:
         1. Checks if selector exists in DB.
         2. Validates if selector is present on the current page.
-        3. If missing or invalid, AUTOMATICALLY triggers AI re-analysis and returns fresh selector.
+        3. If missing or invalid, attempts AI re-analysis, but falls back gracefully.
         """
         # Import here to avoid circular imports
         from .intelligence import analyze_page_and_update_selectors
@@ -45,23 +45,28 @@ class SelectorManager:
                 print(f"    [Selector Stale] '{element_key}' ('{selector}') not found after 2 min wait.")
                 is_valid = False
 
-        # 3. Auto-Healing
+        # 3. Auto-Healing (with graceful fallback)
         if not is_valid:
             print(
                 f"    [Auto-Heal] Selector '{element_key}' in '{context_key}' invalid/missing. Initiating AI repair..."
             )
             info = f"Selector '{element_key}' in '{context_key}' invalid/missing."
-            # Run AI Analysis (which now captures its own snapshot)
-            await analyze_page_and_update_selectors(page, context_key, force_refresh=True, info=info)
+            try:
+                # Run AI Analysis (which now captures its own snapshot)
+                await analyze_page_and_update_selectors(page, context_key, force_refresh=True, info=info)
 
-            # Re-fetch
-            selector = knowledge_db.get(context_key, {}).get(element_key)
+                # Re-fetch
+                selector = knowledge_db.get(context_key, {}).get(element_key)
 
-            if selector:
-                print(f"    [Auto-Heal Success] New selector for '{element_key}': {selector}")
-            else:
-                print(f"    [Auto-Heal Failed] AI could not find '{element_key}' even after refresh.")
+                if selector:
+                    print(f"    [Auto-Heal Success] New selector for '{element_key}': {selector}")
+                else:
+                    print(f"    [Auto-Heal Failed] AI could not find '{element_key}' even after refresh.")
+            except Exception as e:
+                print(f"    [Auto-Heal Error] AI analysis failed for '{element_key}': {e}")
+                selector = None
 
+        # Return selector or empty string (callers should handle empty strings)
         result = selector or ""
         return str(result)
 
@@ -120,3 +125,178 @@ class SelectorManager:
                 return False
 
         return True
+
+    # ===== POPUP-SPECIFIC SELECTOR MANAGEMENT =====
+
+    @staticmethod
+    def get_popup_selectors(context: str) -> list:
+        """
+        Get context-aware popup dismissal selectors with Phase 2 priority
+
+        Args:
+            context: Page context (fb_match_page, fb_general, generic)
+
+        Returns:
+            list: Ordered list of selectors (priority first)
+        """
+        # Phase 2: Football.com match page priority selectors - GUIDED TOUR SEQUENCE
+        if context == 'fb_match_page':
+            return [
+                # Step 1: Next button for guided tour
+                'button:has-text("Next")',
+                'span:has-text("Next")',
+                'button:has-text("Continue")',
+                'span:has-text("Continue")',
+
+                # Step 2: Got it completion buttons
+                'button:has-text("Got it")',
+                'button:has-text("Got it!")',
+                'span:has-text("Got it")',
+                'span:has-text("Got it!")',
+
+                # Step 3: OK dismissal buttons (appears after tour)
+                'button:has-text("OK")',
+                'button:has-text("Ok")',
+                'button:has-text("ok")',
+                'span:has-text("OK")',
+                'span:has-text("Ok")',
+                'span:has-text("ok")',
+
+                # Fallback close buttons
+                'button:has-text("Skip")',
+                'button:has-text("End Tour")',
+                'button:has-text("Dismiss")',
+                'button:has-text("Close")',
+                'svg.close-circle-icon',
+                'button.close',
+                '[data-dismiss="modal"]',
+                'svg[aria-label="Close"]',
+                'button[aria-label="Close"]',
+            ]
+
+        # Football.com general pages
+        elif context == 'fb_general':
+            return [
+                'button:has-text("Got it")',
+                'button:has-text("OK")',
+                'button:has-text("ok")',
+                'button:has-text("Skip")',
+                'button:has-text("End Tour")',
+                'button:has-text("Dismiss")',
+                'button:has-text("Close")',
+                'svg.close-circle-icon',
+                'button.close',
+                '[data-dismiss="modal"]',
+                'svg[aria-label="Close"]',
+                'button[aria-label="Close"]',
+                'button:has-text("Next")',
+                'span:has-text("Next")',
+            ]
+
+        # Generic fallback selectors
+        else:
+            return [
+                'button:has-text("Close")',
+                'button:has-text("OK")',
+                'button:has-text("Dismiss")',
+                'button:has-text("Skip")',
+                'button:has-text("Got it")',
+                '[data-dismiss="modal"]',
+                'svg[aria-label="Close"]',
+                'button[aria-label="Close"]',
+                'button.close',
+                'svg.close-circle-icon',
+                '.close',
+                '[aria-label="Close"]',
+            ]
+
+    @staticmethod
+    def learn_successful_selector(url: str, selector: str, context: Optional[str] = None):
+        """
+        Learn from successful popup dismissals and update knowledge base
+
+        Args:
+            url: Page URL where dismissal succeeded
+            selector: Successful selector
+            context: Page context (auto-detected if None)
+        """
+        if not context:
+            context = SelectorManager._detect_context_from_url(url)
+
+        # Update context-specific knowledge
+        if context not in knowledge_db:
+            knowledge_db[context] = {}
+
+        # Store successful selector with timestamp
+        import time
+        knowledge_db[context][f'popup_close_{int(time.time())}'] = selector
+
+        # Keep only recent successful selectors (last 50)
+        popup_keys = [k for k in knowledge_db[context].keys() if k.startswith('popup_close_')]
+        if len(popup_keys) > 50:
+            # Remove oldest entries
+            sorted_keys = sorted(popup_keys, key=lambda x: int(x.split('_')[-1]))
+            for old_key in sorted_keys[:-50]:
+                del knowledge_db[context][old_key]
+
+        save_knowledge()
+        print(f"[Selector Learning] Learned successful selector: {selector} for {context}")
+
+    @staticmethod
+    def get_learned_selectors(context: str) -> list:
+        """
+        Get selectors learned from successful dismissals
+
+        Args:
+            context: Page context
+
+        Returns:
+            list: Learned selectors ordered by recency
+        """
+        if context not in knowledge_db:
+            return []
+
+        popup_selectors = {}
+        for key, selector in knowledge_db[context].items():
+            if key.startswith('popup_close_'):
+                timestamp = int(key.split('_')[-1])
+                popup_selectors[timestamp] = selector
+
+        # Return most recent selectors first
+        return [popup_selectors[ts] for ts in sorted(popup_selectors.keys(), reverse=True)]
+
+    @staticmethod
+    def _detect_context_from_url(url: str) -> str:
+        """Detect context from URL"""
+        url_lower = url.lower()
+        if 'football.com' in url_lower:
+            if 'match' in url_lower or 'game' in url_lower:
+                return 'fb_match_page'
+            else:
+                return 'fb_general'
+        return 'generic'
+
+    @staticmethod
+    def get_all_popup_selectors(context: str) -> list:
+        """
+        Get complete list of popup selectors: learned + predefined
+
+        Args:
+            context: Page context
+
+        Returns:
+            list: Combined selectors with learned ones prioritized
+        """
+        learned = SelectorManager.get_learned_selectors(context)
+        predefined = SelectorManager.get_popup_selectors(context)
+
+        # Remove duplicates while preserving order (learned first)
+        combined = learned + predefined
+        seen = set()
+        result = []
+        for selector in combined:
+            if selector not in seen:
+                seen.add(selector)
+                result.append(selector)
+
+        return result

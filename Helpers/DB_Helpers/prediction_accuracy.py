@@ -261,7 +261,7 @@ def print_accuracy_report():
         if conf_level in accuracy_by_confidence:
             data = accuracy_by_confidence[conf_level]
             if data['total_predictions'] > 0:
-                print(f"  {conf_level} Confidence: {data['accuracy_percentage']}% Accurate - {data['total_predictions']} Predictions")
+                print(f"  {conf_level} Confidence: {data['accuracy_percentage']}% Accurate - {data['total_predictions']} Reviewed Predictions")
 
     # Calculate and print overall accuracy
     overall_stats = calculate_overall_accuracy(reviewed_predictions)

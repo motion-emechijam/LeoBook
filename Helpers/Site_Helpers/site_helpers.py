@@ -76,48 +76,32 @@ async def click_next_day(page: Page, match_row_selector: str) -> bool:
 
 
 async def fb_universal_popup_dismissal(page: Page, context: str = "fb_generic", monitor_forever: bool = False):
-    """Universal pop-up dismissal for Football.com."""
-    
-    async def _single_dismiss_attempt():
-        # This is a simplified version of your complex popup handler.
-        # It prioritizes the most common buttons.
-        guide_texts = ["GOT IT!", "Ok", "Done", "Got it", "Skip", "I Accept", "I Agree", "I understand"]
-        for text in guide_texts:
-            try:
-                btn_locator = page.get_by_role("button", name=text, exact=False).first
-                if await btn_locator.is_visible(timeout=1000):
-                    await btn_locator.click(timeout=2000)
-                    print(f"    [Popup Handler] Clicked guide button: '{text}'")
-                    return True # Handled one popup
-            except Exception:
-                continue
-        
-        # Fallback for 'X' close icons
-        fallback_selectors = [ 'svg.close-circle-icon', 'button[class*="close"]', '[data-testid*="close"]' ]
-        for sel in fallback_selectors:
-            try:
-                btn = page.locator(sel).first
-                if await btn.is_visible(timeout=1000):
-                    await btn.click(timeout=2000)
-                    print(f"    [Popup Handler] Closed popup via fallback selector: {sel}")
-                    return True
-            except Exception:
-                continue
-        return False
+    """Universal pop-up dismissal for Football.com - NOW USING MODULAR HANDLER."""
+    print(f"[DEBUG] fb_universal_popup_dismissal called with context='{context}', monitor_forever={monitor_forever}")
 
-    if monitor_forever:
-        print(f"    [Popup Handler] Continuous monitoring enabled...")
-        async def monitor_loop():
-            while not page.is_closed():
-                await _single_dismiss_attempt()
-                await asyncio.sleep(30) # Check every 30s
-        asyncio.create_task(monitor_loop())
-    else:
-        for i in range(3): # Try up to 3 times for multi-step popups
-            if not await _single_dismiss_attempt():
-                print(f"    [Popup Handler] No dismissible popups found on attempt {i+1}.")
-                break
-            await asyncio.sleep(1)
+    try:
+        # Import the new modular popup handler
+        from Neo.popup_handler import PopupHandler
+
+        # Create handler instance
+        handler = PopupHandler()
+        print("[DEBUG] Modular PopupHandler instantiated successfully")
+
+        # Convert monitor_forever to monitor_interval (0 = single run, >0 = continuous)
+        monitor_interval = 30 if monitor_forever else 0
+
+        # Call the new modular handler
+        result = await handler.fb_universal_popup_dismissal(page, context, None, monitor_interval)
+        print(f"[DEBUG] Modular handler returned: success={result.get('success', False)}, method={result.get('method', 'unknown')}")
+
+        # Return boolean for backward compatibility
+        return result.get('success', False)
+
+    except Exception as e:
+        print(f"[DEBUG] Error in modular handler: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
             
 
 

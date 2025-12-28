@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime as dt
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 from playwright.async_api import Browser, Page
 from google.generativeai.types import GenerationConfig
@@ -15,7 +15,7 @@ from google.generativeai.types import GenerationConfig
 from Helpers.DB_Helpers.db_helpers import PREDICTIONS_CSV, update_prediction_status
 from Helpers.Site_Helpers.site_helpers import fb_universal_popup_dismissal, get_main_frame
 from Helpers.utils import AUTH_DIR, log_error_state
-from Neo.intelligence import get_selector_auto
+from Neo.intelligence import get_selector_auto, get_selector
 from Helpers.Site_Helpers.site_helpers import get_main_frame
 from Helpers.Neo_Helpers.Managers.api_key_manager import gemini_api_call_with_rotation
 from Helpers.constants import NAVIGATION_TIMEOUT, WAIT_FOR_LOAD_STATE_TIMEOUT
@@ -23,6 +23,12 @@ from Helpers.constants import NAVIGATION_TIMEOUT, WAIT_FOR_LOAD_STATE_TIMEOUT
 PHONE = os.getenv("FB_PHONE")
 PASSWORD = os.getenv("FB_PASSWORD")
 AUTH_FILE = AUTH_DIR / "storage_state.json"
+
+if not PHONE or not PASSWORD:
+    raise ValueError("FB_PHONE and FB_PASSWORD environment variables must be set for login.")
+
+phone = cast(str, PHONE)
+password = cast(str, PASSWORD)
 
 
 async def map_matches_with_gemini(predictions: List[Dict], site_matches: List[Dict], batch_size: int = 10) -> Dict[str, str]:
@@ -130,7 +136,7 @@ async def get_bet_slip_count(page: Page) -> int:
 async def extract_all_markets(page: Page) -> List[Dict]:
     """Expands all market containers and extracts all available betting outcomes."""
     print("    [Harvest] Expanding and harvesting markets...")
-    market_container_sel = await get_selector_auto(page, "fb_match_page", "match_market_details_container") or ".market-details-container"
+    market_container_sel = get_selector("fb_match_page", "match_market_details_container") or ".market-details-container"
     market_header_sel = ".market-title, .group-header"
     market_name_sel = ".market-name, .market-title-text, .group-header__title"
     odds_button_sel = "[data-op*='odds'], .odds-button, .m-odds, .odds"
@@ -190,7 +196,7 @@ async def get_balance(page: Page) -> float:
     """Retrieves and parses the account balance."""
     print("  [Money] Retrieving account balance...")
     try:
-        balance_sel = await get_selector_auto(page, "fb_main_page", "navbar_balance")
+        balance_sel = get_selector("fb_main_page", "navbar_balance")
         if balance_sel and await page.locator(balance_sel).count() > 0:
             balance_text = await page.locator(balance_sel).inner_text(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
             cleaned_text = re.sub(r'[^\d.]', '', balance_text)
@@ -203,25 +209,39 @@ async def get_balance(page: Page) -> float:
 
 
 async def login(page: Page):
-    """Handles the login process for Football.com."""
     print("  [Navigation] Going to Football.com...")
     await page.goto("https://www.football.com/ng/m/", wait_until='domcontentloaded')
+    await asyncio.sleep(15)
+    await fb_universal_popup_dismissal(page, context="fb_login_page")
     try:
-        login_page_selector = await get_selector_auto(page, "fb_login_page", "top_right_login")
-        if login_page_selector and await page.locator(login_page_selector).count() > 0:
-            await page.click(login_page_selector)
-            await asyncio.sleep(5)
+        Login_selector = get_selector("fb_login_page", "top_right_login")
+        if Login_selector and await page.locator(Login_selector).count() > 0:
+             await page.click(Login_selector)
+             print("  [Login] Login page clicked")
+             await asyncio.sleep(5)
+        
+        mobile_selector = "input[type='tel'], input[placeholder*='Mobile']"
+        password_selector = "input[type='password']"
+        login_btn_selector = "button:has-text('Login')"
+      
+        # Fallbacks (Check existence before asking AI to save time)
+        if not await page.locator(mobile_selector).count() > 0:   
+            mobile_selector = get_selector("fb_login_page", "center_input_mobile_number")
+        if not await page.locator(password_selector).count() > 0: 
+            password_selector = get_selector("fb_login_page", "center_input_password")
+        if not await page.locator(login_btn_selector).count() > 0: 
+            login_btn_selector = get_selector("fb_login_page", "bottom_button_login")
 
-        mobile_selector = await get_selector_auto(page, "fb_login_page", "center_input_mobile_number") or "input[type='tel']"
-        password_selector = await get_selector_auto(page, "fb_login_page", "center_input_password") or "input[type='password']"
-        login_btn_selector = await get_selector_auto(page, "fb_login_page", "bottom_button_login") or "button:has-text('Login')"
 
-        await page.wait_for_selector(mobile_selector, state="visible", timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
-        # Ensure PHONE and PASSWORD are not None before passing to fill
-        if PHONE: await page.fill(mobile_selector, PHONE)
-        if PASSWORD: await page.fill(password_selector, PASSWORD)
+        await page.wait_for_selector(mobile_selector, state="visible", timeout=15000)
+        await page.fill(mobile_selector, phone)
+        await asyncio.sleep(1)
+        await page.fill(password_selector, password)
+        await asyncio.sleep(1)
         await page.click(login_btn_selector)
-        await page.wait_for_load_state('domcontentloaded', timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
+        print("  [Login] Login button clicked")
+        await page.wait_for_load_state('domcontentloaded', timeout=30000)
+        await asyncio.sleep(5)
         print("[Login] Football.com Login Successful.")
     except Exception as e:
         print(f"[Login Error] {e}")
@@ -232,10 +252,10 @@ async def extract_all_matches_via_expansion(page: Page, target_date: str) -> Lis
     """Iterates through all league headers, expands them, and extracts matches for a specific date."""
     print("  [Harvest] Starting 'Expand & Harvest' sequence...")
     all_matches = []
-    league_header_sel = await get_selector_auto(page, "fb_schedule_page", "league_header") or ".league-title-wrapper"
-    match_card_sel = await get_selector_auto(page, "fb_schedule_page", "match_rows") or ".match-card-section.match-card"
-    match_url_sel = await get_selector_auto(page, "fb_schedule_page", "match_url") or ".match-card > a.card-link"
-    league_title_sel = await get_selector_auto(page, "fb_schedule_page", "league_title_link") or ".league-link"
+    league_header_sel = get_selector("fb_schedule_page", "league_header") or ".league-title-wrapper"
+    match_card_sel = get_selector("fb_schedule_page", "match_rows") or ".match-card-section.match-card"
+    match_url_sel = get_selector("fb_schedule_page", "match_url") or ".match-card > a.card-link"
+    league_title_sel = get_selector("fb_schedule_page", "league_title_link") or ".league-link"
 
     try:
         league_headers = await page.locator(league_header_sel).all()

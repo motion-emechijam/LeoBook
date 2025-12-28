@@ -6,6 +6,8 @@ Responsible for analyzing webpage screenshots and extracting UI element informat
 
 import base64
 import json
+import traceback
+import re
 from typing import Dict, Any, List, Optional
 
 from google.generativeai.types import GenerationConfig, HarmBlockThreshold, HarmCategory
@@ -49,6 +51,7 @@ class VisualAnalyzer:
         # Step 1: Get Visual Context
         ui_visual_context = await VisualAnalyzer.get_visual_ui_analysis(page, context_key)  # This now uses the screenshot taken above
         if not ui_visual_context:
+            print(f"    [AI INTEL] Visual analysis failed for '{context_key}'. Skipping AI selector generation.")
             return
 
         from pathlib import Path
@@ -80,11 +83,13 @@ class VisualAnalyzer:
         )
 
         if new_selectors:
+            # Simplify complex selectors before saving
+            simplified_selectors = VisualAnalyzer.simplify_selectors(new_selectors, html_content)
             if context_key not in knowledge_db:
                 knowledge_db[context_key] = {}
-            knowledge_db[context_key].update(new_selectors)
+            knowledge_db[context_key].update(simplified_selectors)
             save_knowledge()
-            print(f"    [AI INTEL] Successfully mapped {len(new_selectors)} elements.")
+            print(f"    [AI INTEL] Successfully mapped {len(simplified_selectors)} elements (simplified from {len(new_selectors)}).")
         else:
             print(f"    [AI INTEL ERROR] Failed to generate selectors map.")
 
@@ -94,7 +99,11 @@ class VisualAnalyzer:
     async def get_visual_ui_analysis(page, context_key: str) -> Optional[str]:
         """Capture and analyze visual UI elements from screenshot"""
         try:
-            screenshot_bytes = await page.screenshot(full_page=True, type="png")
+            try:
+                screenshot_bytes = await page.screenshot(full_page=True, type="png", timeout=15000)
+            except Exception:
+                print(f"    [VISUAL WARNING] Full page screenshot failed. Falling back to viewport.")
+                screenshot_bytes = await page.screenshot(full_page=False, type="png")
             img_data = base64.b64encode(screenshot_bytes).decode("utf-8")
 
             prompt = """
@@ -126,7 +135,323 @@ class VisualAnalyzer:
             "Element Description: Exact visible text (function if no text)"
             Include: position, state, repetition patterns.
 
-            Be exhaustive but concise. Don't summarize - list everything that is visible.
+            Be exhaustive but concise. Don't summarize - list everything that is visible. Here are the elements of interest if they are visible for the given day.
+            {{
+            "sport_container": "Main container holding all football matches and leagues",
+            "league_header": "Header row containing country and league name",
+            "match_rows": "Selector that matches ALL individual match rows",
+            "match_row_home_team_name": "Element inside a match row containing the home team name",
+            "match_row_away_team_name": "Element inside a match row containing the away team name",
+            "match_row_time": "Element inside a match row showing kick-off time",
+            "next_day_button": "Button or icon that navigates to tomorrow's fixtures",
+            "prev_day_button": "Button or icon that navigates to previous day",
+            "league_category": "Country name (e.g., ENGLAND) in league header",
+            "league_title_link": "Clickable league name link in header",
+            "event_row_link": "Anchor tag inside match row linking to match detail page",
+            "cookie_accept_button": "Primary accept button in cookie/privacy banner",
+            "tab_live": "Live matches tab",
+            "tab_finished": "Finished matches tab",
+            "tab_scheduled": "Scheduled/upcoming matches tab",
+            # =========================================================================
+            # MATCH HEADER (METADATA)
+            # =========================================================================
+            "meta_breadcrumb_country": "Country name in breadcrumb (e.g. Armenia), found with class '.tournamentHeader__country'",
+            "meta_breadcrumb_league": "League name in breadcrumb (e.g. Premier League), found with class '.tournamentHeader__league a'",
+            "meta_match_time": "Exact match start time/date, found with class '.duelParticipant__startTime'",
+            "meta_match_status": "Status text (e.g., Finished, 1st Half), found with class '.fixedHeaderDuel__detailStatus'",
+            
+            # --- Home Team Header ---
+            "header_home_participant": "Container for home team info, found with class '.duelParticipant__home'",
+            "header_home_image": "Home team logo image, found with class '.duelParticipant__home .participant__image'",
+            "header_home_name": "Home team text name, found with class '.duelParticipant__home .participant__participantName'",
+            
+            # --- Away Team Header ---
+            "header_away_participant": "Container for away team info, found with class '.duelParticipant__away'",
+            "header_away_image": "Away team logo image, found with class '.duelParticipant__away .participant__image'",
+            "header_away_name": "Away team text name, found with class '.duelParticipant__away .participant__participantName'",
+            
+            # --- Score Board ---
+            "header_score_wrapper": "Container for the big score display, found with class '.detailScore__wrapper'",
+            "header_score_home": "Home team score, found with class '.detailScore__wrapper span:nth-child(1)'",
+            "header_score_divider": "The hyphen or 'vs' between scores, found with class '.detailScore__divider'",
+            "header_score_away": "Away team score, found with class '.detailScore__wrapper span:nth-child(3)'",
+
+            # =========================================================================
+            # NAVIGATION TABS
+            # =========================================================================
+            "nav_tab_summary": "Summary tab link, found via 'a[href=\"#match-summary\"]'",
+            "nav_tab_news": "News tab link, found via 'a[href=\"#news\"]'",
+            "nav_tab_odds": "Odds tab link, found via 'a[href=\"#odds-comparison\"]'",
+            "nav_tab_h2h": "Head-to-Head tab link, found via 'a[href=\"#h2h\"]'",
+            "nav_tab_standings": "Standings tab link, found via 'a[href=\"#standings\"]'",
+            "nav_tab_photos": "Photos/Media tab link, found via 'a[href=\"#match-photos\"]'",
+
+            # =========================================================================
+            # H2H TAB CONTENT (Deep Dive)
+            # =========================================================================
+            # --- Filters ---
+            "h2h_filter_container": "Container for Overall/Home/Away buttons, found with class '.h2h__filter'",
+            "h2h_btn_overall": "Filter button 'Overall', found via '.h2h__filter div:nth-of-type(1)'",
+            "h2h_btn_home": "Filter button 'Home', found via '.h2h__filter div:nth-of-type(2)'",
+            "h2h_btn_away": "Filter button 'Away', found via '.h2h__filter div:nth-of-type(3)'",
+
+            # --- Sections ---
+            "h2h_section_home_last_5": "Container for Home Team's last matches, found with class '.h2h__section:nth-of-type(1)'",
+            "h2h_section_away_last_5": "Container for Away Team's last matches, found with class '.h2h__section:nth-of-type(2)'",
+            "h2h_section_mutual": "Container for Head-to-Head mutual matches, found with class '.h2h__section:nth-of-type(3)'",
+            "h2h_section_title": "The title text (e.g., 'LAST MATCHES: PYUNIK YEREVAN'), found with class '.h2h__sectionHeader'",
+
+            # --- Rows (Iterate these) ---
+            "h2h_row_general": "Common selector for ANY match row in H2H, found with class '.h2h__row'",
+            "h2h_row_date": "Date of past match, found with class '.h2h__date'",
+            "h2h_row_league_icon": "Competition icon/tooltip, found with class '.h2h__eventIcon'",
+            "h2h_row_participant_home": "Home team name in history row, found with class '.h2h__homeParticipant'",
+            "h2h_row_participant_away": "Away team name in history row, found with class '.h2h__awayParticipant'",
+            "h2h_row_score_home": "Home score in history row, found via '.h2h__result span:nth-child(1)'",
+            "h2h_row_score_away": "Away score in history row, found via '.h2h__result span:nth-child(2)'",
+            "h2h_row_win_marker": "Highlighted bold text indicating the winner, found with class '.fontBold'",
+            
+            # --- Badges ---
+            "h2h_badge_win": "Green 'W' icon, found with class '.h2h__icon--win' or title='Win'",
+            "h2h_badge_draw": "Orange 'D' icon, found with class '.h2h__icon--draw' or title='Draw'",
+            "h2h_badge_loss": "Red 'L' icon, found with class '.h2h__icon--lost' or title='Loss'",
+
+            # --- Interaction ---
+            "h2h_show_more_home": "Button to load more home history, found via '.h2h__section:nth-of-type(1) .showMore'",
+            "h2h_show_more_away": "Button to load more away history, found via '.h2h__section:nth-of-type(2) .showMore'",
+            "h2h_show_more_mutual": "Button to load more mutual history, found via '.h2h__section:nth-of-type(3) .showMore'",
+
+        # =========================================================================
+            # STANDINGS TAB - NAVIGATION & FILTERS
+            # =========================================================================
+            "standings_filter_overall": "Button to show Overall table, found via '.subFilter__group a:contains(\"Overall\")'",
+            "standings_filter_home": "Button to show Home table, found via '.subFilter__group a:contains(\"Home\")'",
+            "standings_filter_away": "Button to show Away table, found via '.subFilter__group a:contains(\"Away\")'",
+            "standings_filter_form": "Button to show Form table (last 5, 10, etc.), found via '.subFilter__group a:contains(\"Form\")'",
+            "standings_filter_over_under": "Button to show Over/Under stats table, found via '.subFilter__group a:contains(\"Over/Under\")'",
+
+            # =========================================================================
+            # STANDINGS TAB - TABLE STRUCTURE
+            # =========================================================================
+            "standings_table": "The main standings table container, found with class '.ui-table'",
+            "standings_table_body": "The body containing all team rows, found with class '.ui-table__body'",
+            
+            # --- The Header Row ---
+            "standings_header_row": "The top row containing column titles (Pos, Team, Pl, W...), found with class '.ui-table__header'",
+            "standings_header_cell_rank": "Header cell 'Pos' or '#', found via '.ui-table__header .tableCellRank'",
+            "standings_header_cell_team": "Header cell 'Team', found via '.ui-table__header .tableCellParticipant'",
+            "standings_header_cell_played": "Header cell 'Pl' or 'MP', found via '.ui-table__header .tableCellValue:nth-child(3)'",
+            
+            # --- The Data Rows (Iterate these) ---
+            "standings_row": "Selector for an individual team row, found with class '.ui-table__row'",
+            
+            # --- Specific Columns within a Row ---
+            "standings_col_rank": "The rank/position number (e.g., 1, 2), found with class '.tableCellRank'",
+            "standings_col_team_name": "The clickable team name text, found with class '.tableCellParticipant__name'",
+            "standings_col_team_link": "The URL to the team page, found in the 'href' of '.tableCellParticipant__name'",
+            "standings_col_team_logo": "The team logo image, found with class '.participant__image'",
+            
+            # Matches Played (MP) is usually the 1st numerical value after the team name
+            "standings_col_matches_played": "Matches played count, found via '.tableCellValue:nth-of-type(1)'",
+            
+            # Wins (W)
+            "standings_col_wins": "Win count, found via '.tableCellValue:nth-of-type(2)'",
+            
+            # Draws (D)
+            "standings_col_draws": "Draw count, found via '.tableCellValue:nth-of-type(3)'",
+            
+            # Losses (L)
+            "standings_col_losses": "Loss count, found via '.tableCellValue:nth-of-type(4)'",
+            
+            # Goals (G) - often displayed as '23:12'
+            "standings_col_goals": "Goals For:Against string (e.g., '23:12'), found via '.tableCellValue:nth-of-type(5)'",
+            # Note: Some layouts split Goals For/Against. If split, use:
+            # "standings_col_goals_for": "Goals scored, found via '.tableCellValue:nth-of-type(5)'",
+            # "standings_col_goals_against": "Goals conceded, found via '.tableCellValue:nth-of-type(6)'",
+            
+            # Goal Difference (often hidden on mobile, visible on desktop)
+            "standings_col_goal_diff": "Goal difference value, found via '.tableCellValue:nth-of-type(6)' (check index based on view)",
+            
+            # Points (PTS) - usually bolded
+            "standings_col_points": "Total points, found with class '.tableCellPoints' or '.tableCellValue--bold'",
+            
+            # --- Form Guide (The 5 colored squares) ---
+            "standings_col_form": "Container for the last 5 match badges, found with class '.tableCellForm'",
+            "standings_form_badge_1": "Most recent match result (rightmost or leftmost depending on locale), found via '.tableCellForm .formIcon:nth-child(1)'",
+            "standings_form_badge_2": "2nd match result, found via '.tableCellForm .formIcon:nth-child(2)'",
+            "standings_form_badge_3": "3rd match result, found via '.tableCellForm .formIcon:nth-child(3)'",
+            "standings_form_badge_4": "4th match result, found via '.tableCellForm .formIcon:nth-child(4)'",
+            "standings_form_badge_5": "5th match result, found via '.tableCellForm .formIcon:nth-child(5)'",
+            
+            # Badges definition (Check class or title attribute)
+            "standings_form_icon_win": "Green 'W' badge, found with class '.formIcon--win'",
+            "standings_form_icon_draw": "Orange 'D' badge, found with class '.formIcon--draw'",
+            "standings_form_icon_loss": "Red 'L' badge, found with class '.formIcon--lost'",
+
+            # =========================================================================
+            # STANDINGS TAB - LEGEND (Qualification/Relegation)
+            # =========================================================================
+            "standings_legend_container": "The legend below the table explaining colors, found with class '.legend__wrapper'",
+            "standings_qualification_row": "A row in the table marked for qualification (e.g. Champions League), found via '.ui-table__row--promotion'",
+            "standings_relegation_row": "A row in the table marked for relegation, found via '.ui-table__row--relegation'",
+            "standings_promotion_label": "Text description of the color (e.g., 'Promotion - Champions League'), found via '.legend__row .legend__text'",
+            "standings_promotion_color": "The color box in the legend, found via '.legend__row .legend__icon'",
+            # =========================================================================
+            # ODDS SECTION
+            # =========================================================================
+            "odds_filter_1x2": "Tab for 1x2 odds, found via '.filter__group a:contains(\"1X2\")'",
+            "odds_filter_ou": "Tab for Over/Under odds, found via '.filter__group a:contains(\"O/U\")'",
+            "odds_filter_ah": "Tab for Asian Handicap, found via '.filter__group a:contains(\"AH\")'",
+            "odds_row": "Row for a specific bookmaker, found with class '.ui-table__row'",
+            "odds_bookmaker_logo": "Bookmaker logo img, found with class '.bookmaker__logo'",
+            "odds_val_1": "Home win odd value, found via '.odds__cell:nth-child(2) span'",
+            "odds_val_x": "Draw odd value, found via '.odds__cell:nth-child(3) span'",
+            "odds_val_2": "Away win odd value, found via '.odds__cell:nth-child(4) span'",
+            "odds_movement_up": "Green arrow indicating odds drift up, found with class '.oddsCell__trend--up'",
+            "odds_movement_down": "Red arrow indicating odds drift down, found with class '.oddsCell__trend--down'",
+
+            # =========================================================================
+            # ADVERTISEMENTS (For blocking/ignoring)
+            # =========================================================================
+            "ad_header_banner": "Top banner ad, found with class '.box-over-content'",
+            "ad_sidebar_right": "Right side skyscraper ad, found with class '.box-skyscraper'",
+            "ad_native_content": "Ads disguised as content rows, found with class '.box-native-news'",
+            "ad_popup_overlay": "Any full screen overlay ad, usually found with class '.fc-dialog-overlay'",
+
+            # =========================================================================
+            # FOOTER & MISC
+            # =========================================================================
+            "footer_seo_text": "SEO description text at bottom, found with class '.seo-text'",
+            "footer_app_links": "Container for App Store/Google Play buttons, found with class '.box-app-store'",
+            "footer_copyright": "Copyright text, found with class '.copyright'",
+            
+            # --- Tooltips/Popups ---
+            "tooltip_container": "General container for popups, found with class '[data-testid=\"wcl-tooltip\"]'",
+            "tooltip_close_btn": "Close/Understand button, found via '[data-testid=\"wcl-tooltip-actionButton\"]'"
+
+            # fb_login_page keys
+            "top_right_login": "official logical method",
+            "center_input_mobile_number": "Input field for entering mobile number",
+            "center_input_password": "Input field for entering password",
+            "bottom_button_login": "Primary login button at the bottom",
+            "center_link_forgot_password": "Link to recover forgotten password",
+            "center_text_mobile_country_code": "Text displaying the mobile country code",
+            "top_container_nav_bar": "Top navigation bar container",
+            "top_icon_back": "Back icon in the top navigation bar",
+            "top_icon_close": "Close icon for popup. the close icon is usually at the top right corner.",
+            "top_tab_register": "Register tab in the navigation menu",
+            "top_tab_login": "Login tab in the navigation menu",
+            # fb_main_page keys
+            "full_schedule_button": "Text Button to navigate to the full schedule page, typically labeled 'Full Schedule' or similar",
+            "navbar_balance": "Element showing user balance in the navbar",
+            "currency": "Element showing currency class in the navbar_balance",
+            "search_button": "Search button/icon in the main page",
+            "search_input": "Search input field",
+            "bet_slip_fab_icon_button": "Floating action button (FAB) icon/button to open the bet slip section from anywhere on the match page",
+            # fb_schedule_page keys
+            "filter_dropdown_today": "Dropdown button to select date filter (Today, Tomorrow, etc.)",
+            "dropdown_time_items": "List of time/date options in the dropdown menu",
+            "sort_dropdown": "Dropdown button to sort matches by League, Time, etc.",
+            "league_header": "Header row containing country and league name",
+            "match_rows": "Selector that matches ALL individual match rows",
+            "match_row_time": "Element inside a match row showing kick-off time",
+            "pre_match_list_league_container": "Main container holding all pre_match football leagues and matches",
+            "league_title_wrapper": "Header row containing country, league name and number of matches in pre_match list",
+            "league_title_link": "Clickable league name link in league_title_wrapper",
+            "league_wrapper_collapsed": "Same as just 'league_wrapper'(when league_title_wrapper is clicked). Contains the matches for the given league",
+            "league_row": "Contains the league_title_wrapper and the league_wrapper_collapsed, which is make up a league. So the league_row is one league",
+            "match_card": "Selector with each match details (home team, away team, date, time, league name(and url), and the match page url) in pre_match list",
+            "match_card_link": "Anchor tag inside match_card linking to match detail page",
+            "match_region_league_name": "Selector with the match region and league name (e.g England - Premier League)",
+            "match_card_home_team": "Element inside a match_card containing the home team name",
+            "match_card_away_team": "Element inside a match_card containing the away team name",
+            "match_card_date": "Element inside a match_card showing match date",
+            "match_card_time": "Element inside a match_card showing kick_off time",
+            "match_card_league_link": "Clickable href of region-league name in match_card(e.g International Clubs - UEFA Champions League)",
+            "match_url": "The href link of the match_card to the match detail page ",
+            "bet_slip_fab_icon_button": "Floating action button (FAB) icon/button to open the bet slip section from anywhere on the match page",
+            # fb_match_page keys
+            "tooltip_icon_close": "tooltip in the top right side of the match page",
+            "dialog_container": "popup dialog in the match page",
+            "dialog_container_wrapper": "dialog_container that prevents inactive in on the page when the dialog_container appears",
+            "intro_dialog": "body of the dialog_container in the match page",
+            "intro_dialog_btn": "intro_dialog button for 'Next' and 'Got it'",
+            "match_smart_picks_container": "Container for match football.com AI smart picks section",
+            "match_smart_picks_dropdown": "Dropdown to reveal different smart pick analysis options",
+            "smart_pick_item": "Selector for each individual smart pick item in the smart picks section",
+            "match_market_category_tab": "container for market category tabs (e.g., 'All', 'Main', 'Early wins', 'Corners', 'Goals', etc.)",
+            "match_market_search_icon_button": "Search icon/button to search for specific betting markets available for the match",
+            "match_market_search_input": "Input field to type in betting market search terms available for the match",
+            "match_market_details_container": "Container that holds a betting market details for the match. This is the main wrapper for a market group (e.g., 1X2, Over/Under). Clicking on a market header expands it to show all available betting options.",
+            "match_market_name": "Element showing the name/title of a specific betting market for the match (e.g Home to win either half, Away to win either half, etc.)",
+            "match_market_info_tooltip": "Tooltip icon/button that shows additional information about a specific betting market when clicked",
+            "match_market_info_tooltip_text": "The text content inside the tooltip that provides additional information about a specific betting market",
+            "match_market_tooltip_ok_button": "OK button inside the betting market tooltip to close it",
+            "match_market_table": "Table inside a betting market that lists all available betting options along with their odds",
+            "match_market_table_header": "Header row of the betting market table that contains column titles (e.g., 'outcome(value)', 'over', 'under')",
+            "match_market_table_row": "Row inside the betting market table representing a single betting option(1.5(in the outcome column), 1.85(in the over column), 1.95(in the under column), etc.)",
+            "match_market_odds_button": "The clickable element representing a single betting outcome (e.g., 'Home', 'Over 2.5') that displays the odds. This element should be unique for each outcome.",
+            "bet_slip_container": "Container for the bet slip section that shows selected bets and allows users to manage their bets",
+            "bet_slip_predicitions_counter": "Text Element inside the bet slip that displays the number of predictions/bets added to the slip. Could be class "real-theme" and "is-zero real-theme(whenthe counter is zero)",
+            "bet_slip_remove_all_button": "Button inside the bet slip that allows users to clear all selected bets from the slip",
+            "bet_slip_single_bet_tab": "Tab inside the bet slip for placing single bets",
+            "bet_slip_multiple_bet_tab": "Tab inside the bet slip for placing multiple bets (accumulators)",
+            "bet_slip_system_bet_tab": "Tab inside the bet slip for placing system bets",
+            "bet_slip_outcome_list": "List inside the bet slip that shows all selected betting outcomes",
+            "bet_slip_outcome_item": "Item inside the bet slip outcome list representing a single selected betting outcome",
+            "bet_slip_outcome_remove_button": "Button inside a bet slip outcome item that allows users to remove that specific outcome from the bet slip",
+            "bet_slip_outcome_details": "Element inside a bet slip outcome item that displays details about the selected betting outcome (e.g., market name, outcome, odds, match teams etc.). clicking on this element usually navigates to the match page.",
+            "match_url": "The URL link to the match detail page from the bet slip outcome details",
+            "navbar_balance": "Element showing user currency and balance in the bet slip section",
+            "real_match_button": "Button that switches from virtual match to real match all with real money for the selected bet_slip_outcome_item in the bet slip section",
+            "stake_input_field_button": "Input field/button to enter stake amount for the selected bet_slip_outcome_item in the bet slip section",
+            "stake_input_keypad_button": "Keypad button inside the stake input field to enter stake amount for the selected bet_slip_outcome_item in the bet slip section",
+            "keypad_1": "Keypad button for digit '1'",
+            "keypad_2": "Keypad button for digit '2'",
+            "keypad_3": "Keypad button for digit '3'",
+            "keypad_4": "Keypad button for digit '4'",
+            "keypad_5": "Keypad button for digit '5'",
+            "keypad_6": "Keypad button for digit '6'",
+            "keypad_7": "Keypad button for digit '7'",
+            "keypad_8": "Keypad button for digit '8'",
+            "keypad_9": "Keypad button for digit '9'",
+            "keypad_0": "Keypad button for digit '0'",
+            "keypad_dot": "Keypad button for decimal point",
+            "keypad_clear": "Keypad button to clear the entered stake amount",
+            "keypad_done": "Keypad button to confirm the entered stake amount",
+            "bet_slip_total_odds": "Element showing total odds for all selected bets in the bet slip",
+            "bet_slip_potential_win": "Element showing potential winnings for the entered stake amount in the bet slip",
+            "bet_slip_early_win_checkbox": "Checkbox in the bet slip to enable or disable early win cash out option",
+            "bet_slip_one_cut_checkbox": "Checkbox in the bet slip to enable or disable one cut option",
+            "bet_slip_cut_one_checkbox": "Checkbox in the bet slip to enable or disable cut one option",
+            "bet_slip_accept_odds_change_button": "Button in the bet slip to accept any odds changes before placing the bet",
+            "bet_slip_book_bet_button": "Button to reveal a bottom sheet/modal get the betslip shareable link, code, and image",
+            "bet_code": "Element showing the unique bet code for sharing or retrieving the bet slip",
+            "bet_link": "Element showing the unique bet link URL for sharing or retrieving the bet slip",
+            "bet_image": "Element showing the bet slip image/graphic for sharing or saving",
+            "place_bet_button": "Button to confirm and place the bet with the entered stake amount",
+            "bet_slip_stake_input": "Input field for entering the stake amount in the bet slip",
+            "bet_slip_confirm_button": "Button to confirm the bet placement in the bet slip modal",
+            "bet_slip_fab_icon_button": "Floating action button (FAB) icon/button to open the bet slip section from anywhere on the match page",
+            # fb_withdraw_page keys
+            "withdrawable_balance": "Element showing user withdrawable balance on the withdraw page",
+            "withdraw_input_amount_field": "Input field to enter amount to withdraw on the withdraw page",
+            "withdraw_button_submit": "Button to submit the withdrawal request on the withdraw page",
+            "withdrawal_pin_field": "four digits input box for withdrawal pin",
+            "keypad_1": "Keypad button for digit '1'",
+            "keypad_2": "Keypad button for digit '2'",
+            "keypad_3": "Keypad button for digit '3'",
+            "keypad_4": "Keypad button for digit '4'",
+            "keypad_5": "Keypad button for digit '5'",
+            "keypad_6": "Keypad button for digit '6'",
+            "keypad_7": "Keypad button for digit '7'",
+            "keypad_8": "Keypad button for digit '8'",
+            "keypad_9": "Keypad button for digit '9'",
+            "keypad_0": "Keypad button for digit '0'",
+            "keypad_dot": "Keypad button for decimal point",
+            "keypad_clear": "Keypad button to clear the entered withdrawal pin",
+            "keypad_done": "Keypad button to confirm the entered withdrawal pin",
+            }}
             """
 
             response = await gemini_api_call_with_rotation(
@@ -134,9 +459,39 @@ class VisualAnalyzer:
                 generation_config=GenerationConfig(temperature=0.1),  # type: ignore
             )
 
-            return response.text if response else None
+            # Safe extraction logic
+            text_content = None
+            try:
+                if response and hasattr(response, 'text') and response.text:
+                    text_content = response.text
+            except Exception:
+                pass
+
+            if text_content:
+                return text_content
+
+            if response and hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
+                # Try to extract text from candidates
+                try:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        return candidate.content.parts[0].text
+                    else:
+                        print(f"    [VISUAL ERROR] Invalid candidate structure")
+                        return None
+                except (IndexError, AttributeError, TypeError) as e:
+                    print(f"    [VISUAL ERROR] Could not extract text from response candidates: {e}")
+                    return None
+            else:
+                print(f"    [VISUAL ERROR] Invalid or empty response format: {type(response)}")
+                if response:
+                    print(f"    [VISUAL ERROR] Response attributes: {dir(response)}")
+                    if hasattr(response, 'candidates'):
+                        print(f"    [VISUAL ERROR] Candidates: {response.candidates}")
+                return None
 
         except Exception as e:
+            traceback.print_exc()
             print(f"    [VISUAL ERROR] Failed to analyze screenshot: {e}")
             return None
 
@@ -366,9 +721,9 @@ class VisualAnalyzer:
 
         # fb_login_page keys
         "top_right_login": "official logical method",
-        "center_text_mobile_number_placeholder": "Input field placeholder for entering mobile number",
-        "center_text_password_placeholder": "Input field placeholder for entering password",
-        "bottom_button_text_login": "Primary login button text at the bottom",
+        "center_input_mobile_number": "Input field for entering mobile number",
+        "center_input_password": "Input field for entering password",
+        "bottom_button_login": "Primary login button at the bottom",
         "center_link_forgot_password": "Link to recover forgotten password",
         "center_text_mobile_country_code": "Text displaying the mobile country code",
         "top_container_nav_bar": "Top navigation bar container",
@@ -377,12 +732,19 @@ class VisualAnalyzer:
         "top_tab_register": "Register tab in the navigation menu",
         "top_tab_login": "Login tab in the navigation menu",
         # fb_main_page keys
+        "full_schedule_button": "Text Button to navigate to the full schedule page, typically labeled 'Full Schedule' or similar",
         "navbar_balance": "Element showing user balance in the navbar",
         "currency": "Element showing currency class in the navbar_balance",
         "search_button": "Search button/icon in the main page",
         "search_input": "Search input field",
         "bet_slip_fab_icon_button": "Floating action button (FAB) icon/button to open the bet slip section from anywhere on the match page",
         # fb_schedule_page keys
+        "filter_dropdown_today": "Dropdown button to select date filter (Today, Tomorrow, etc.)",
+        "dropdown_time_items": "List of time/date options in the dropdown menu",
+        "sort_dropdown": "Dropdown button to sort matches by League, Time, etc.",
+        "league_header": "Header row containing country and league name",
+        "match_rows": "Selector that matches ALL individual match rows",
+        "match_row_time": "Element inside a match row showing kick-off time",
         "pre_match_list_league_container": "Main container holding all pre_match football leagues and matches",
         "league_title_wrapper": "Header row containing country, league name and number of matches in pre_match list",
         "league_title_link": "Clickable league name link in league_title_wrapper",
@@ -458,6 +820,8 @@ class VisualAnalyzer:
         "bet_link": "Element showing the unique bet link URL for sharing or retrieving the bet slip",
         "bet_image": "Element showing the bet slip image/graphic for sharing or saving",
         "place_bet_button": "Button to confirm and place the bet with the entered stake amount",
+        "bet_slip_stake_input": "Input field for entering the stake amount in the bet slip",
+        "bet_slip_confirm_button": "Button to confirm the bet placement in the bet slip modal",
         "bet_slip_fab_icon_button": "Floating action button (FAB) icon/button to open the bet slip section from anywhere on the match page",
         # fb_withdraw_page keys
         "withdrawable_balance": "Element showing user withdrawable balance on the withdraw page",
@@ -482,18 +846,17 @@ class VisualAnalyzer:
         ### 2. ALL OTHER ELEMENTS → Strict Naming Convention
         Pattern: <location>*<type>*<content_or_purpose>
         Examples: top_button_login, header_icon_search, center_text_premier_league
-        ### 3. Selector Quality Rules
+        ### 3. CRITICAL SELECTOR RULES - KEEP IT SIMPLE!
         - Return ONLY a valid JSON object: {{"key": "selector"}}
-        - Prefer: IDs > data-* attributes > unique classes > class combinations
-        - FORBIDDEN: Do not use the non-standard `:contains()` pseudo-class. Do not use selectors containing `skeleton` or `ska__`. Use standard CSS. Avoid long chains (>4 levels) and overly specific text.
-        - Must match exactly what is visible in the screenshot
-        - For repeated elements (e.g., match rows), selector must match ALL instances
-        - Lastly, if an element is not present in the html, omit that key from the output. We now have Fooball.com elements as well.
-        
-        Valid Selectors: The majority are standard CSS selectors, utilizing valid syntax such as class names (e.g., .m-input-wrapper), attribute selectors (e.g., [placeholder="Mobile Number"]), pseudo-classes (e.g., :not([style*="display: none"])), combinators (e.g., >, descendant spaces), and structural pseudo-classes (e.g., :nth-child(1)). These are compatible with Playwright and Chromium's querySelectorAll() implementation. Examples include:
-        "div.m-input-wrapper.mobile-number input[placeholder=\\"Mobile Number\\"]"
-        ".m-featured-match-card-container .featured-match-top a.tournament"
-        "div.categories-container > div.active.category"
+        - **MANDATORY: Use the SIMPLEST possible selector**
+        - **PRIORITY**: ID > Single class > Simple attribute > 2-word combo
+        - **FORBIDDEN**: Chains >2 levels, long selectors, complex nesting
+        - **RULE**: If simple works, STOP - don't make it complex
+
+        VALID: "#btn", ".schedule", "a[href*='login']", "button.save"
+        INVALID: "div.container section.matches a.button", "div.home-section-container.is-upcoming-matches a.view-more-button"
+
+        **ALWAYS USE SIMPLE SELECTORS - NO EXCEPTIONS!**
 
         Invalid or Non-Standard Selectors: A subset employs the :contains("text") pseudo-class, which is not part of standard CSS (it originated in jQuery/Sizzle but was never adopted in CSS specifications). Playwright does not support :contains as a custom extension; instead, it offers :text="text" or :has-text("text") for text-based matching. Using :contains will likely result in a selector error or failure to locate elements. Affected entries include:
         "div.categories h1.tournament-name:contains(\\"Championship\\")" (and similar variants for other leagues like "Liga MX, Apertura", "Brasileiro Serie A", etc.).
@@ -528,8 +891,48 @@ class VisualAnalyzer:
                 full_prompt,  # type: ignore
                 generation_config=GenerationConfig(response_mime_type="application/json")  # type: ignore
             )
-            cleaned_json = clean_json_response(response.text)
-            return json.loads(cleaned_json)
+
+            # Extract text from response
+            response_text = None
+            try:
+                if response and hasattr(response, 'text') and response.text:
+                    response_text = response.text
+            except Exception:
+                pass
+
+            if not response_text and response and hasattr(response, 'candidates') and response.candidates:
+                try:
+                    if len(response.candidates) > 0 and response.candidates[0].content.parts:
+                        response_text = response.candidates[0].content.parts[0].text
+                except (IndexError, AttributeError):
+                    print(f"    [MAPPING ERROR] Could not extract text from response candidates")
+                    return None
+            
+            if not response_text:
+                print(f"    [MAPPING ERROR] Invalid response format: {type(response)}")
+                return None
+
+            cleaned_json = clean_json_response(response_text)
+
+            try:
+                return json.loads(cleaned_json)
+            except json.JSONDecodeError as json_error:
+                print(f"    [MAPPING ERROR] JSON parsing failed: {json_error}")
+                # Debug logging for JSON parsing issues
+                if "Invalid \\escape" in str(json_error) or "escape" in str(json_error).lower():
+                    print(f"    [MAPPING DEBUG] Raw response text (first 500 chars): {response_text[:500]}")
+                    print(f"    [MAPPING DEBUG] Cleaned JSON (first 500 chars): {cleaned_json[:500]}")
+                else:
+                    print(f"    [MAPPING DEBUG] Cleaned JSON: {cleaned_json}")
+                # Try to extract any valid JSON from the response
+                json_match = re.search(r'\{.*\}', cleaned_json, re.DOTALL)
+                if json_match:
+                    try:
+                        return json.loads(json_match.group(0))
+                    except Exception as extract_error:
+                        print(f"    [MAPPING DEBUG] JSON extraction also failed: {extract_error}")
+                        pass
+                return None
 
         except Exception as e:
             print(f"    [MAPPING ERROR] Failed to map visuals to selectors: {e}")
@@ -552,81 +955,141 @@ class VisualAnalyzer:
             screenshot_bytes = await page.screenshot(full_page=False)  # Viewport only is better for popups
         except Exception as e:
             print(f"    [AI RECOVERY] Could not capture screenshot: {e}")
+        return False
+
+    @staticmethod
+    def simplify_selectors(selectors: Dict[str, str], html_content: str) -> Dict[str, str]:
+        """
+        Post-process AI-generated selectors to simplify complex ones and make them more robust.
+        This function runs after AI selector generation to clean up overly complex selectors.
+        """
+        import re
+
+        simplified = {}
+
+        for key, selector in selectors.items():
+            original_selector = selector
+
+            # Skip if already simple
+            if VisualAnalyzer._is_simple_selector(selector):
+                simplified[key] = selector
+                continue
+
+            # Try to simplify complex selectors
+            simplified_selector = VisualAnalyzer._simplify_complex_selector(selector, html_content, key)
+
+            if simplified_selector != selector:
+                print(f"    [SELECTOR SIMPLIFIED] '{key}': '{selector}' -> '{simplified_selector}'")
+            else:
+                print(f"    [SELECTOR KEPT] '{key}': '{selector}' (could not simplify)")
+
+            simplified[key] = simplified_selector
+
+        return simplified
+
+    @staticmethod
+    def _is_simple_selector(selector: str) -> bool:
+        """Check if a selector is already simple enough"""
+        if not selector:
+            return True
+
+        # Count selector complexity
+        parts = selector.split()
+        if len(parts) > 3:  # More than 3 separate selectors
             return False
 
-        # 2. Ask Gemini for the Solution
-        prompt = """
-        Analyze this screenshot for any blocking elements like:
-        - Pop-up ads or Banners
-        - "Install App" modals
-        - "Free Bet" notifications
-        - Onboarding/Tutorial overlays (e.g. "Next", "Skip", "Got it")
-        - Cookie/GDPR overlays
+        # Check for overly long class chains
+        if selector.count('.') > 2:  # More than 2 classes
+            return False
 
-        If a blocking element exists, identify the VALID CSS selector for the button to DISMISS or CLOSE it.
+        # Check for deep nesting
+        if selector.count('>') > 1 or selector.count(' ') > 2:  # Deep nesting
+            return False
 
-        IMPORTANT:
-        1. Return STANDARD CSS SELECTORS only (e.g., div.close, button[aria-label='Close']).
-        2. DO NOT use jQuery extensions like :contains() or :has-text().
-        3. If the button has specific text (e.g. "Next", "Skip"), include that text in the 'button_text' field of the JSON.
+        # Check for very long selectors
+        if len(selector) > 100:  # Very long selector
+            return False
 
-        Return a pure JSON object:
-        {{
-            "blocker_detected": true/false,
-            "description": "Short description of the popup",
-            "action_selector": "css_selector",
-            "button_text": "Text inside the button if available (e.g. Next, Skip)"
-        }}
+        return True
+
+    @staticmethod
+    def _simplify_complex_selector(selector: str, html_content: str, key: str) -> str:
         """
+        Attempt to simplify a complex selector by finding simpler alternatives
+        """
+        # Strategy 1: Look for IDs in the selector chain
+        id_match = re.search(r'#[\w-]+', selector)
+        if id_match:
+            candidate_id = id_match.group(0)
+            # Verify this ID exists and is unique in HTML
+            if html_content.count(candidate_id) == 1:
+                return candidate_id
 
-        try:
-            response = await gemini_api_call_with_rotation(
-                [prompt, {"inline_data": {"mime_type": "image/png", "data": base64.b64encode(screenshot_bytes).decode("utf-8")}}],
-                generation_config=GenerationConfig(response_mime_type="application/json")  # type: ignore
-            )
-            cleaned_json = clean_json_response(response.text)
-            result = json.loads(cleaned_json)
+        # Strategy 2: Look for unique semantic classes (prefer single classes)
+        class_matches = re.findall(r'\.[\w-]+', selector)
+        for class_match in class_matches:
+            # Check if this single class appears only once in the HTML (making it unique)
+            if html_content.count(class_match) == 1:
+                return class_match
 
-            if result.get("blocker_detected"):
-                selector = result.get("action_selector")
-                btn_text = result.get("button_text")
-                desc = result.get("description")
-                print(f"    [AI RECOVERY] Blocker Detected: {desc}")
+        # Strategy 3: Try attribute selectors for common patterns
+        if 'button' in key.lower() or 'btn' in key.lower():
+            # For buttons, try simple attribute selectors
+            if 'schedule' in key.lower():
+                return "a[href*='schedule']"
+            if 'login' in key.lower():
+                return "button:has-text('Login')"
+            if 'search' in key.lower():
+                return ".search-button"
 
-                # 3. Execute the Fix
-                clicked = False
+        if 'input' in key.lower():
+            if 'mobile' in key.lower() or 'phone' in key.lower():
+                return "input[type='tel']"
+            if 'password' in key.lower():
+                return "input[type='password']"
 
-                # Strategy A: Selector from AI
-                if selector:
-                    print(f"    [AI RECOVERY] Trying CSS selector: {selector}")
-                    try:
-                        if await page.locator(selector).count() > 0:
-                            await page.click(selector, timeout=2000)
-                            clicked = True
-                    except:
-                        pass
+        # Strategy 4: Extract the last meaningful part of complex selectors
+        # For example: "div.container section.matches div.view-more a.button" -> "a.button"
+        parts = selector.split()
+        if len(parts) > 1:
+            # Take the last 1-2 parts that look like actual selectors
+            last_parts = []
+            for part in reversed(parts):
+                if part.strip() and not part in ['>', '+', '~', ':has-text', ':contains']:
+                    # Clean up malformed parts
+                    part = part.strip(')"\'')
+                    if part and not part.startswith('('):
+                        last_parts.insert(0, part)
+                        if len(last_parts) >= 2:  # Don't take more than 2 parts
+                            break
 
-                # Strategy B: Text Fallback (Smart Recovery)
-                if not clicked and btn_text:
-                    print(f"    [AI RECOVERY] Selector failed. Trying text match: '{btn_text}'")
-                    try:
-                        # Look for button-like elements with this text
-                        await page.get_by_text(btn_text, exact=False).first.click(timeout=2000)
-                        clicked = True
-                    except:
-                        pass
+            if last_parts:
+                candidate = ' '.join(last_parts)
+                # Ensure it's a valid selector and simpler
+                if len(candidate) < len(selector) and VisualAnalyzer._is_simple_selector(candidate):
+                    return candidate
 
-                if clicked:
-                    print("    [AI RECOVERY] Click successful. Waiting for UI to settle...")
-                    import asyncio
-                    await asyncio.sleep(2)
-                    return True
-                else:
-                    print("    [AI RECOVERY] Failed to dismiss popup. No working selector or text found.")
-            else:
-                print("    [AI RECOVERY] No obvious blockers detected by AI.")
+        # Strategy 5: For Football.com specific patterns, use known simple selectors
+        if 'full_schedule_button' in key:
+            return "a[href*='schedule']"
+        if 'league_header' in key:
+            return ".league-title"
+        if 'match_rows' in key:
+            return ".match-card"
+        if 'match_url' in key:
+            return ".match-card a"
 
-        except Exception as e:
-            print(f"    [AI RECOVERY ERROR] {e}")
+        # Strategy 6: Clean up malformed selectors from AI
+        # Remove incomplete parts that end with quotes or parentheses
+        if selector.endswith('")') or selector.endswith("')"):
+            # Try to extract a valid part
+            clean_parts = []
+            for part in selector.split():
+                part = part.strip(')"\'')
+                if part and not part.startswith('(') and not part.endswith('('):
+                    clean_parts.append(part)
+            if clean_parts:
+                return ' '.join(clean_parts[-2:])  # Take last 2 clean parts
 
-        return False
+        # If no simplification found, return original (better than nothing)
+        return selector

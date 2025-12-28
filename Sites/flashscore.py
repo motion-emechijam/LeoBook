@@ -10,7 +10,8 @@ from playwright.async_api import Browser, Page
 from Helpers.DB_Helpers.db_helpers import get_last_processed_info, save_schedule_entry, save_team_entry, save_standings, save_region_league_entry
 from Helpers.Site_Helpers.site_helpers import fs_universal_popup_dismissal, click_next_day
 from Helpers.utils import BatchProcessor, log_error_state
-from Neo.intelligence import analyze_page_and_update_selectors, get_selector, get_selector_auto
+from Neo.intelligence import analyze_page_and_update_selectors, get_selector_auto
+from Neo.selector_manager import SelectorManager
 from Helpers.Site_Helpers.Extractors.h2h_extractor import extract_h2h_data, save_extracted_h2h_to_schedules
 from Helpers.Site_Helpers.Extractors.standings_extractor import extract_standings_data
 from Neo.model import RuleEngine
@@ -47,7 +48,7 @@ async def process_match_task(match_data: dict, browser: Browser):
 
         # --- H2H Tab & Expansion ---
         await analyze_page_and_update_selectors(page, "match_page")
-        h2h_tab_selector = get_selector("match_page", "nav_tab_h2h")
+        h2h_tab_selector = await SelectorManager.get_selector_auto(page, "match_page", "nav_tab_h2h")
 
         h2h_data = {}
         if h2h_tab_selector and await page.locator(h2h_tab_selector).is_visible(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT):
@@ -59,24 +60,23 @@ async def process_match_task(match_data: dict, browser: Browser):
                 await asyncio.sleep(3.0)  # Shorter wait time
 
                 # More robust H2H expansion with better error handling
-                show_more_selector = "button:has-text('Show more matches'), a:has-text('Show more matches')"
-                try:
-                    # Wait shorter time and handle case where buttons don't exist
-                    await page.wait_for_selector(show_more_selector, timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
-                    show_more_buttons = page.locator(show_more_selector).first  # Try first one
-                    if await show_more_buttons.count() > 0:
-                        print("    [H2H Expansion] Expanding available match history...")
+                h2h_show_more_home_sel = await SelectorManager.get_selector_auto(page, "h2h_tab", "h2h_show_more_home")
+                h2h_show_more_away_sel = await SelectorManager.get_selector_auto(page, "h2h_tab", "h2h_show_more_away")
+                h2h_show_more_mutual_sel = await SelectorManager.get_selector_auto(page, "h2h_tab", "h2h_show_more_mutual")
+
+                show_more_selectors = [h2h_show_more_home_sel, h2h_show_more_away_sel, h2h_show_more_mutual_sel]
+                show_more_selectors = [s for s in show_more_selectors if s]  # Filter out None values
+
+                if show_more_selectors:
+                    print("    [H2H Expansion] Expanding available match history...")
+                    for selector in show_more_selectors:
                         try:
-                            await show_more_buttons.click(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
-                            await asyncio.sleep(5.0)
-                            # Check if clicking reveals more buttons
-                            second_button = page.locator(show_more_selector).nth(1)
-                            if await second_button.count() > 0:
-                                await second_button.click(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
-                                await asyncio.sleep(1.0)
+                            if await page.locator(selector).count() > 0:
+                                await page.locator(selector).click(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
+                                await asyncio.sleep(2.0)
                         except Exception:
-                            print("    [H2H Expansion] Some expansion buttons failed, but continuing...")
-                except Exception:
+                            print(f"    [H2H Expansion] Failed to click selector: {selector}")
+                else:
                     print("    [H2H Expansion] No expansion buttons found or failed to load.")
 
                 await asyncio.sleep(3.0)  # Shorter wait time
@@ -85,10 +85,10 @@ async def process_match_task(match_data: dict, browser: Browser):
 
                 h2h_count = len(h2h_data.get("home_last_10_matches", [])) + len(h2h_data.get("away_last_10_matches", [])) + len(h2h_data.get("head_to_head", []))
                 print(f"      [OK H2H] H2H tab data extracted for {match_label} ({h2h_count} matches found)")
-                
+
                 # Save the initially extracted (incomplete) H2H matches
                 newly_found_past_matches = await save_extracted_h2h_to_schedules(h2h_data)
-                
+
                 # Enrichment DISABLED: Too resource-intensive for prediction workflow
                 # Past matches are enriched on-demand during outcome review only
                 # if newly_found_past_matches:
@@ -100,7 +100,7 @@ async def process_match_task(match_data: dict, browser: Browser):
             print(f"      [Warning] H2H tab inaccessible for {match_label}")
 
         # --- Standings Tab ---
-        standings_tab_selector = get_selector("match_page", "nav_tab_standings")
+        standings_tab_selector = await SelectorManager.get_selector_auto(page, "match_page", "nav_tab_standings")
         standings_data = []
         standings_league = "Unknown"
         if standings_tab_selector and await page.locator(standings_tab_selector).is_visible(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT):
@@ -310,12 +310,12 @@ async def run_flashscore_analysis(browser: Browser):
     last_processed_info = get_last_processed_info()
 
     # --- Daily Loop ---
-    for day_offset in range(7):
+    for day_offset in range(14):
         target_date = dt.now(NIGERIA_TZ) + timedelta(days=day_offset)
         target_full = target_date.strftime("%d.%m.%Y")
         
         if day_offset > 0:
-            match_row_sel = get_selector("home_page", "match_rows")
+            match_row_sel = await SelectorManager.get_selector_auto(page, "home_page", "match_rows")
             if not await click_next_day(page, match_row_sel):
                 print("  [Critical] Daily navigation failed. Stopping session.")
                 break
@@ -330,7 +330,7 @@ async def run_flashscore_analysis(browser: Browser):
         await fs_universal_popup_dismissal(page, "home_page")
 
         try:
-            scheduled_tab_sel = get_selector("home_page", "tab_scheduled")
+            scheduled_tab_sel = await SelectorManager.get_selector_auto(page, "home_page", "tab_scheduled")
             if scheduled_tab_sel and await page.locator(scheduled_tab_sel).is_visible(timeout=WAIT_FOR_LOAD_STATE_TIMEOUT):
                 await page.click(scheduled_tab_sel)
                 print("    [Info] Clicked scheduled tab.")

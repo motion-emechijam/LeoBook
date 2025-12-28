@@ -31,7 +31,12 @@ class ApiKeyManager:
             try:
                 with open(state_file, 'r') as f:
                     state = json.load(f)
-                    self.current_key_index = state.get('last_index', 0)
+                    loaded_index = state.get('last_index', 0)
+                    if 0 <= loaded_index < len(self.keys):
+                        self.current_key_index = loaded_index
+                    else:
+                        print(f"  [API Key] Loaded index {loaded_index} out of range. Resetting to 0.")
+                        self.current_key_index = 0
                     self.exhausted_keys = set(state.get('exhausted', []))
             except Exception as e:
                 print(f"  [API Key] Failed to load state: {e}")
@@ -114,6 +119,17 @@ async def gemini_api_call_with_rotation(prompt_content, generation_config, **kwa
             # Check if the error is a quota error
             if "429" in str(e) and "quota" in str(e).lower():
                 print(f"    [Gemini Error] Quota exceeded for key index {key_manager.current_key_index}.")
+
+                # Rotate key and check if we've tried all keys
+                if not key_manager.rotate_key(): # and key_manager.current_key_index == initial_key_index:
+                    # We have tried all keys and are back to the start.
+                    # Wait for a minute before trying the first key again.
+                    print("    [API Key] All keys are rate-limited. Waiting for 60 seconds...")
+                    await asyncio.sleep(180)
+                # After rotating (or waiting), continue the loop to retry the request
+                continue
+            elif "403" in str(e) and "leaked" in str(e).lower():
+                print(f"    [Gemini Error] API key index {key_manager.current_key_index} blocked.")
 
                 # Rotate key and check if we've tried all keys
                 if not key_manager.rotate_key(): # and key_manager.current_key_index == initial_key_index:

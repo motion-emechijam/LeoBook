@@ -16,7 +16,7 @@ from playwright.async_api import Page
 T = TypeVar('T')
 LOG_DIR = Path("Logs")
 ERROR_LOG_DIR = LOG_DIR / "Error" # Corrected to match handbook
-AUTH_DIR = Path("auth")
+AUTH_DIR = Path("DB/Auth")
 
 class Tee(object):
     """A utility to redirect stdout to both console and a log file."""
@@ -34,7 +34,7 @@ async def log_error_state(page: Page, context_label: str, error: Exception):
     """Captures the state of the page upon an error."""
     ERROR_LOG_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        print(f"  [CRITICAL ERROR] Logging state for '{context_label}'. See 'Logs/Errors' folder.")
+        print(f"  [CRITICAL ERROR] Logging state for '{context_label}'. See 'Logs/Error' folder.")
         timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
         base_filename = f"{context_label}_{timestamp}"
         

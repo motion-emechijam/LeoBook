@@ -39,7 +39,10 @@ async def main():
                 if not browser or not browser.is_connected():
                     print("     Launching new browser instance...")
                     if browser: await browser.close() # Ensure old instance is closed     
-                    browser = await p.chromium.launch(headless=True)
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=["--disable-dev-shm-usage", "--no-sandbox"]
+                    )
 
                 # --- PHASE 0: REVIEW (Observe past actions) ---
                 print("\n   [Phase 0] Checking for past matches to review...")
@@ -54,11 +57,11 @@ async def main():
 
                 # --- PHASE 1: ANALYSIS (Observe and Decide) ---
                 print("\n   [Phase 1] Starting analysis engine (Flashscore)...")
-                await run_flashscore_analysis(browser)
+                #await run_flashscore_analysis(browser)
 
                 # --- PHASE 2: BOOKING (Act) ---
                 print("\n   [Phase 2] Starting booking process (Football.com)...")
-                # await run_football_com_booking(browser)
+                #await run_football_com_booking(browser)
 
                 # --- PHASE 3: SLEEP (The wait) ---
                 print("\n   --- LEO: Cycle Complete. ---")
@@ -86,7 +89,9 @@ if __name__ == "__main__":
 
     log_file = open(log_file_path, "w", encoding="utf-8")
     original_stdout = sys.stdout
+    original_stderr = sys.stderr
     sys.stdout = Tee(original_stdout, log_file)
+    sys.stderr = Tee(original_stderr, log_file)
 
     # Run the main async function
     try:
@@ -95,4 +100,5 @@ if __name__ == "__main__":
         print("\n   --- LEO: Shutting down gracefully. ---")
     finally:
         sys.stdout = original_stdout
+        sys.stderr = original_stderr
         log_file.close()
