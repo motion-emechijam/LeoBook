@@ -8,6 +8,8 @@ import base64
 import json
 import traceback
 import re
+import asyncio
+import requests
 from typing import Dict, Any, List, Optional
 
 from .utils import clean_json_response
@@ -452,6 +454,43 @@ class VisualAnalyzer:
             }}
             """
 
+            # --- LEO: LOCAL VISION UPGRADE (Qwen3-VL) ---
+            try:
+                print("    [VISUAL] Analyzing UI with Local Qwen3-VL (Port 8080)...")
+                
+                def _run_local_vision():
+                    return requests.post(
+                        "http://127.0.0.1:8080/v1/chat/completions", 
+                        json={
+                            "messages": [
+                                {
+                                    "role": "user", 
+                                    "content": [
+                                        {"type": "text", "text": prompt},
+                                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}}
+                                    ]
+                                }
+                            ],
+                            "temperature": 0.1,
+                            "max_tokens": 4096,
+                            "stream": False
+                        }, 
+                        timeout=180
+                    )
+
+                # Run blocking request in thread
+                local_resp = await asyncio.to_thread(_run_local_vision)
+                
+                if local_resp.status_code == 200:
+                    content = local_resp.json()['choices'][0]['message']['content']
+                    return content
+                else:
+                    print(f"    [VISUAL WARNING] Local Qwen returned status {local_resp.status_code}. Falling back to Cloud...")
+            
+            except Exception as e:
+                print(f"    [VISUAL WARNING] Local Qwen failed ({e}). Falling back to Cloud Gemini...")
+
+            # Fallback: Google Gemini
             response = await gemini_api_call_with_rotation(
                 [prompt, {"inline_data": {"mime_type": "image/png", "data": img_data}}],
                 generation_config={"temperature": 0.1},  # type: ignore

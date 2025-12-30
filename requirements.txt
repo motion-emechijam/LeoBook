@@ -1,7 +1,8 @@
-
-google.generativeai
+google-generativeai
 playwright
-dotenv
+python-dotenv
 numpy
 pandas
-scikit-learn==1.7.2
+scikit-learn
+requests
+gguf

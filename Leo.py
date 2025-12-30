@@ -14,9 +14,9 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-print(f"DEBUG: FB_PHONE is {'Set' if os.getenv('FB_PHONE') else 'NOT SET'}")
-print(f"DEBUG: .env location: {Path('.env').absolute()}")
-print(f"DEBUG: .env exists: {Path('.env').exists()}")
+#print(f"DEBUG: FB_PHONE is {'Set' if os.getenv('FB_PHONE') else 'NOT SET'}")
+#print(f"DEBUG: .env location: {Path('.env').absolute()}")
+#print(f"DEBUG: .env exists: {Path('.env').exists()}")
 
 from playwright.async_api import async_playwright
 

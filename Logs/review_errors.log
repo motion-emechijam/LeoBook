@@ -2753,3 +2753,57 @@ Call log:
 Call log:
   - navigating to "https://www.flashscore.com/match/football/rio-branco-vn-G879mo6t/tombense-bo9r6pAI/?mid=tt9elHXQ", waiting until "domcontentloaded"
 
+2025-12-30T18:14:32.869913 [HIGH] csv_save_error: Failed to save CSV: [WinError 32] The process cannot access the file because it is being used by another process: 'DB\\predictions.csv.tmp' -> 'DB\\predictions.csv'
+2025-12-30T18:14:45.095511 [HIGH] csv_save_error: Failed to save CSV: [WinError 32] The process cannot access the file because it is being used by another process: 'DB\\predictions.csv.tmp' -> 'DB\\predictions.csv'
+2025-12-30T18:14:46.110113 [HIGH] csv_save_error: Failed to save CSV: [WinError 32] The process cannot access the file because it is being used by another process: 'DB\\predictions.csv.tmp' -> 'DB\\predictions.csv'
+2025-12-30T18:16:07.704635 [HIGH] csv_save_error: Failed to save CSV: [WinError 32] The process cannot access the file because it is being used by another process: 'DB\\predictions.csv.tmp' -> 'DB\\predictions.csv'
+2025-12-30T18:16:09.639228 [HIGH] csv_save_error: Failed to save CSV: [WinError 32] The process cannot access the file because it is being used by another process: 'DB\\predictions.csv.tmp' -> 'DB\\predictions.csv'
+2025-12-30T18:16:12.782199 [HIGH] csv_save_error: Failed to save CSV: [WinError 32] The process cannot access the file because it is being used by another process: 'DB\\predictions.csv.tmp' -> 'DB\\predictions.csv'
+2025-12-30T18:16:33.198287 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:16:33.295097 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:16:36.327624 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:16:41.363701 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:18:04.724633 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:18:06.508943 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:18:06.695268 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:18:07.023758 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:19:24.157699 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:19:24.841114 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:19:28.803959 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
+2025-12-30T18:19:38.094784 [MEDIUM] score_extraction_error: Failed to extract score: Locator.inner_text: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("div.detailScore__wrapper > span:nth-child(3)").first
+
