@@ -1,12 +1,13 @@
 import requests
 import json
+import os
 
 class SemanticMatcher:
     def __init__(self, model='qwen3-vl:2b-custom'):
         # The model name doesn't strictly matter for the raw server as it only serves one model,
         # but we keep it for compatibility with the signature.
         self.model = model
-        self.api_url = "http://127.0.0.1:8080/v1/chat/completions"
+        self.api_url = os.getenv("LLM_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
 
     def is_match(self, team1, team2, league=None):
         """

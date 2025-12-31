@@ -1,0 +1,30 @@
+services:
+  # Service 1: The LeoBook Agent (Python Logic)
+  leobook:
+    build: .
+    container_name: leobook_agent
+    environment:
+      # In Docker network, 'mind' is the hostname of the AI service
+      - LLM_API_URL=http://mind:8080/v1/chat/completions
+      - PLAYWRIGHT_TIMEOUT=3600000
+    depends_on:
+      - mind
+    volumes:
+      - ./DB:/app/DB
+      - ./Logs:/app/Logs
+      - ./.env:/app/.env
+    working_dir: /app
+    tty: true
+    stdin_open: true
+
+  # Service 2: The AI Brain (Llama Server) - Automatically runs Linux version in Codespaces
+  mind:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: leobook_mind
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Mind:/models
+    # Command to run the split model (Brain + Eyes)
+    # We increase context size (-c) and force the host to listen on 0.0.0.0
+    command: -m /models/model.gguf --mmproj /models/mmproj.gguf --host 0.0.0.0 --port 8080 -c 22144

@@ -42,7 +42,7 @@ MAIN WORKFLOW:
 4. BETTING EXECUTION PHASE:
    - Match predictions with Football.com betting markets
    - Use AI to identify safest betting opportunities
-   - Execute automated bet placement with stake management
+   - Execute automated bet placement with stake management  
 
 5. OUTCOME REVIEW & LEARNING PHASE:
    - Monitor completed matches for results

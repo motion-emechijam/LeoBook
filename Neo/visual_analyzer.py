@@ -10,6 +10,7 @@ import traceback
 import re
 import asyncio
 import requests
+import os
 from typing import Dict, Any, List, Optional
 
 from .utils import clean_json_response
@@ -460,7 +461,7 @@ class VisualAnalyzer:
                 
                 def _run_local_vision():
                     return requests.post(
-                        "http://127.0.0.1:8080/v1/chat/completions", 
+                        os.getenv("LLM_API_URL", "http://127.0.0.1:8080/v1/chat/completions"),
                         json={
                             "messages": [
                                 {

@@ -70,7 +70,7 @@ async def main():
 
                 # --- PHASE 2: BOOKING (Act) ---
                 print("\n   [Phase 2] Starting booking process (Football.com)...")
-                #await run_football_com_booking(browser)
+                await run_football_com_booking(browser)
 
                 # --- PHASE 3: SLEEP (The wait) ---
                 print("\n   --- LEO: Cycle Complete. ---")
