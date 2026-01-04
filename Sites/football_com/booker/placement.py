@@ -9,7 +9,11 @@ from pathlib import Path
 from datetime import datetime as dt
 from playwright.async_api import Page
 from Helpers.Site_Helpers.site_helpers import get_main_frame
-from Helpers.DB_Helpers.db_helpers import update_prediction_status
+from Helpers.DB_Helpers.db_helpers import (
+    update_prediction_status, 
+    update_site_match_status, 
+    get_site_match_id
+)
 from Helpers.utils import log_error_state, capture_debug_snapshot
 from Neo.selector_manager import SelectorManager
 from Neo.intelligence import get_selector, get_selector_auto, fb_universal_popup_dismissal as neo_popup_dismissal
@@ -166,6 +170,10 @@ async def place_bets_for_matches(page: Page, matched_urls: Dict[str, str], day_p
                             if await get_bet_slip_count(page) > count_before:
                                 selected_bets += 1
                                 update_prediction_status(match_id, target_date, 'booked')
+                                # Sync with Registry
+                                site_id = get_site_match_id(target_date, pred['home_team'], pred['away_team'])
+                                update_site_match_status(site_id, 'booked', fixture_id=match_id)
+                                
                                 print(f"    [Success] Added bet for {pred['home_team']} vs {pred['away_team']}")
                                 bet_selected = True
                 except Exception as e:

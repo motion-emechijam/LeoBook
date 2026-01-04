@@ -12,6 +12,85 @@ from Helpers.Neo_Helpers.Managers.db_manager import knowledge_db
 class PageAnalyzer:
     """Handles webpage content analysis and data extraction"""
 
+    # --- NEW: Context Validation Rules ---
+    # Defines how to identify if we are on a specific page context via URL, Title, or Elements
+    EXPECTED_CONTEXTS = {
+        "fb_login_page": {
+            "url_patterns": ["/ng/"], 
+            "title_patterns": ["Login", "Sign In"],
+            "identifying_selectors": ["input[type='tel']", "input[type='password']"], 
+            "description": "Football.com Login Page"
+        },
+        "fb_match_page": {
+            "url_patterns": ["/sr:match:"],
+            "title_patterns": [" vs "],
+            "description": "Football.com Match/Event Detail Page"
+        },
+        "fb_schedule_page": {
+            "url_patterns": ["/sport/football/"],
+            "title_patterns": ["Betting", "Odds", "Schedule"],
+            "description": "Football.com Schedule/Listing Page"
+        },
+        "fb_main_page": {
+            "url_patterns": ["football.com/ng/"],
+            "title_patterns": ["Football.com"],
+            # Home page shouldn't have login inputs visible usually
+            "description": "Football.com Main Mobile Hub"
+        },
+        "fb_global": {
+            "url_patterns": ["football.com"],
+            "description": "Any page on Football.com (Global elements)"
+        }
+    }
+
+
+    @staticmethod
+    async def verify_page_context(page, context_key: str) -> bool:
+        """
+        Validates if the current browser page matches the requested context
+        using URL, Title, and Identifying Selectors.
+        """
+        if context_key not in PageAnalyzer.EXPECTED_CONTEXTS:
+            return True
+            
+        try:
+            url = page.url.lower()
+            title = (await page.title()).lower()
+            rules = PageAnalyzer.EXPECTED_CONTEXTS[context_key]
+            
+            # 1. URL Check (Strict for match/schedule, loose for home/login)
+            url_match = any(p.lower() in url for p in rules["url_patterns"])
+            
+            # 2. Title Check
+            title_match = any(p.lower() in title for p in rules["title_patterns"])
+
+            # 3. Identifying Selector Check (Crucial for Home vs Login)
+            if "identifying_selectors" in rules:
+                selector_found = False
+                for sel in rules["identifying_selectors"]:
+                    try:
+                        # Short timeout to avoid blocking
+                        if await page.locator(sel).count() > 0:
+                            selector_found = True
+                            break
+                    except:
+                        continue
+                
+                # For login page, we MUST see the inputs if we're at the root URL
+                if context_key == "fb_login_page" and not selector_found:
+                    return False
+            
+            # 4. Handle Schedule vs Home distinction (Schedule includes /sport/football/)
+            if context_key == "fb_main_page" and "/sport/football" in url:
+                return False
+
+            if url_match or title_match:
+                return True
+                
+            return False
+        except Exception:
+            return True
+
     @staticmethod
     async def extract_league_data(
         page, context_key: str = "home_page"

@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import asyncio
 from typing import Optional
 
 class SemanticMatcher:
@@ -8,22 +9,14 @@ class SemanticMatcher:
         """
         Initialize the SemanticMatcher for local LLM server (OpenAI-compatible endpoint).
         """
-        # Model name is kept for compatibility but ignored by single-model servers
         self.model = model
         self.api_url = os.getenv("LLM_API_URL", "http://127.0.0.1:8080/v1/chat/completions")
-        self.timeout = int(os.getenv("LLM_TIMEOUT", "30"))
+        self.timeout = int(os.getenv("LLM_TIMEOUT", "60"))
 
-    def is_match(self, desc1: str, desc2: str, league: Optional[str] = None) -> bool:
+    async def is_match(self, desc1: str, desc2: str, league: Optional[str] = None) -> bool:
         """
         Determines if two match descriptions refer to the same football fixture.
-        
-        Args:
-            desc1: First description (e.g., "Manchester United vs Liverpool" or full match string)
-            desc2: Second description (matching format to desc1)
-            league: Optional league/region information for additional context
-            
-        Returns:
-            True if the LLM confidently believes they are the same match, False otherwise.
+        Asynchronous to allow non-blocking I/O.
         """
         context = ""
         if league:
@@ -44,16 +37,17 @@ class SemanticMatcher:
             ],
             "temperature": 0.0,
             "max_tokens": 10,
-            "stop": ["\n", "."]  # Encourage strict single-word response
         }
 
-        response = None
         try:
-            response = requests.post(
-                self.api_url,
-                json=payload,
-                timeout=self.timeout
-            )
+            def _do_request():
+                return requests.post(
+                    self.api_url,
+                    json=payload,
+                    timeout=self.timeout
+                )
+
+            response = await asyncio.to_thread(_do_request)
             response.raise_for_status()
 
             data = response.json()
@@ -65,19 +59,8 @@ class SemanticMatcher:
             elif content.startswith('no'):
                 return False
             else:
-                # Fallback: check for presence of 'yes' anywhere (in case of extra text)
                 return 'yes' in content
 
-        except requests.Timeout:
-            print(f"  [LLM Error] Timeout when matching '{desc1}' vs '{desc2}'")
-            return False
-        except requests.ConnectionError:
-            print(f"  [LLM Error] Connection failed to LLM server at {self.api_url}")
-            return False
-        except requests.HTTPError as http_err:
-            response_text = response.text if response else 'N/A'
-            print(f"  [LLM Error] HTTP error: {http_err} | Response: {response_text}")
-            return False
         except Exception as e:
-            print(f"  [LLM Error] Unexpected failure matching '{desc1}' vs '{desc2}': {e}")
+            print(f"  [LLM Matcher Error] {e}")
             return False

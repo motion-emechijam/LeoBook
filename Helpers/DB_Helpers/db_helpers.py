@@ -18,6 +18,7 @@ SCHEDULES_CSV = os.path.join(DB_DIR, "schedules.csv")
 STANDINGS_CSV = os.path.join(DB_DIR, "standings.csv")
 TEAMS_CSV = os.path.join(DB_DIR, "teams.csv")
 REGION_LEAGUE_CSV = os.path.join(DB_DIR, "region_league.csv")
+FOOTBALL_COM_MATCHES_CSV = os.path.join(DB_DIR, "football_com_matches.csv")
 
 
 def init_csvs():
@@ -43,7 +44,11 @@ def init_csvs():
             'losses', 'goals_for', 'goals_against', 'goal_difference', 'points', 'last_updated', 'url', 'standings_key'
         ],
         TEAMS_CSV: ['team_id', 'team_name', 'region_league', 'team_url'],
-    REGION_LEAGUE_CSV: ['region_league_id', 'region', 'league_name', 'url']
+    REGION_LEAGUE_CSV: ['region_league_id', 'region', 'league_name', 'url'],
+        FOOTBALL_COM_MATCHES_CSV: [
+            'site_match_id', 'date', 'home_team', 'away_team', 'league', 'url', 
+            'last_extracted', 'fixture_id', 'booking_status', 'booking_details'
+        ]
     }
 
     for filepath, headers in files_and_headers.items():
@@ -168,6 +173,69 @@ def save_team_entry(team_info: Dict[str, Any]):
 
     upsert_entry(TEAMS_CSV, team_info, files_and_headers[TEAMS_CSV], 'team_id')
 
+# --- Football.com Registry Helpers ---
+
+def get_site_match_id(date: str, home: str, away: str) -> str:
+    """Generate a unique ID for a site match to prevent duplicates."""
+    import hashlib
+    unique_str = f"{date}_{home}_{away}".lower().strip()
+    return hashlib.md5(unique_str.encode()).hexdigest()
+
+def save_site_matches(matches: List[Dict[str, Any]]):
+    """UPSERTs a list of matches extracted from Football.com into the registry."""
+    if not matches: return
+    
+    headers = files_and_headers[FOOTBALL_COM_MATCHES_CSV]
+    last_extracted = dt.now().isoformat()
+    
+    for match in matches:
+        site_id = get_site_match_id(match.get('date', ''), match.get('home', ''), match.get('away', ''))
+        row = {
+            'site_match_id': site_id,
+            'date': match.get('date'),
+            'home_team': match.get('home'),
+            'away_team': match.get('away'),
+            'league': match.get('league'),
+            'url': match.get('url'),
+            'last_extracted': last_extracted,
+            'fixture_id': match.get('fixture_id', ''),
+            'booking_status': match.get('booking_status', 'pending'),
+            'booking_details': match.get('booking_details', '')
+        }
+        upsert_entry(FOOTBALL_COM_MATCHES_CSV, row, headers, 'site_match_id')
+
+def load_site_matches(target_date: str) -> List[Dict[str, Any]]:
+    """Loads all extracted site matches for a specific date."""
+    if not os.path.exists(FOOTBALL_COM_MATCHES_CSV):
+        return []
+    
+    all_matches = _read_csv(FOOTBALL_COM_MATCHES_CSV)
+    return [m for m in all_matches if m.get('date') == target_date]
+
+def update_site_match_status(site_match_id: str, status: str, fixture_id: Optional[str] = None, details: Optional[str] = None):
+    """Updates the booking status or connected fixture_id for a site match."""
+    if not os.path.exists(FOOTBALL_COM_MATCHES_CSV):
+        return
+
+    rows = []
+    updated = False
+    try:
+        with open(FOOTBALL_COM_MATCHES_CSV, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames
+            for row in reader:
+                if row.get('site_match_id') == site_match_id:
+                    row['booking_status'] = status
+                    if fixture_id: row['fixture_id'] = fixture_id
+                    if details: row['booking_details'] = details
+                    updated = True
+                rows.append(row)
+
+        if updated and fieldnames is not None:
+            _write_csv(FOOTBALL_COM_MATCHES_CSV, rows, list(fieldnames))
+    except Exception as e:
+        print(f"    [DB Error] Failed to update site match status: {e}")
+
 def get_last_processed_info() -> Dict:
     """Loads last processed match info once at the start."""
     last_processed_info = {}
@@ -207,5 +275,9 @@ files_and_headers = {
         'losses', 'goals_for', 'goals_against', 'goal_difference', 'points', 'last_updated', 'url', 'standings_key'
     ],
     TEAMS_CSV: ['team_id', 'team_name', 'region_league', 'team_url'],
-    REGION_LEAGUE_CSV: ['region_league_id', 'region', 'league_name', 'url']
+    REGION_LEAGUE_CSV: ['region_league_id', 'region', 'league_name', 'url'],
+    FOOTBALL_COM_MATCHES_CSV: [
+        'site_match_id', 'date', 'home_team', 'away_team', 'league', 'url', 
+        'last_extracted', 'fixture_id', 'booking_status', 'booking_details'
+    ]
 }

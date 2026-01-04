@@ -59,28 +59,28 @@ async def extract_league_matches(page: Page, target_date: str) -> List[Dict]:
                 else:
                      # Click to expand - Primary Method with Force & JS Fallback
                      try:
-                         target_el = league_element if await league_element.is_visible() else header_locator
-                         await target_el.scroll_into_view_if_needed()
-                         # Center the element to avoid bottom nav
-                         await target_el.evaluate("el => el.scrollIntoView({block: 'center', inline: 'nearest'})")
-                         # await asyncio.sleep(0.5) # Removed
-
+                         # Use exact text match for league header to avoid strict mode violation (e.g. Liga Portugal vs Liga Portugal 2)
+                         league_header_locator = page.locator(f"h4:text-is('{league_text}')").first
                          
+                         if await league_header_locator.count() == 0:
+                             # Fallback to the generic header_locator if h4 doesn't match perfectly
+                             target_el = league_element if await league_element.is_visible() else header_locator
+                         else:
+                             target_el = league_header_locator
+
+                         await target_el.scroll_into_view_if_needed()
+                         await target_el.evaluate("el => el.scrollIntoView({block: 'center', inline: 'nearest'})")
                          await target_el.click(force=True, timeout=5000)
                      except Exception as click_error:
-                         # Fallback to JS click which ignores overlays
+                         # Fallback to JS click
                          target_el = league_element if await league_element.is_visible() else header_locator
                          await target_el.evaluate("el => el.click()")
-                     
-                     # await asyncio.sleep(1.0) # Removed fixed sleep, relying on element appearance below
 
 
                 # Extraction Function (Reusable blob)
                 matches_in_section = []
                 # Efficiently wait for the container without arbitrary sleep
                 matches_container = await header_locator.evaluate_handle('(el) => el.nextElementSibling')
-                
-                # await asyncio.sleep(1.0) # Removed
 
                 if matches_container:
                     matches_in_section = await matches_container.evaluate("""(container, args) => {
@@ -93,10 +93,13 @@ async def extract_league_matches(page: Page, target_date: str) -> List[Dict]:
                             const timeEl = card.querySelector(selectors.time_sel);
                             const linkEl = card.querySelector(selectors.match_url_sel) || card.closest('a');
                             
-                            if (homeEl && awayEl) {
+                            const home = homeEl ? homeEl.innerText.trim() : "";
+                            const away = awayEl ? awayEl.innerText.trim() : "";
+
+                            if (home && away) {
                                 results.push({ 
-                                    home: homeEl.innerText.trim(), 
-                                    away: awayEl.innerText.trim(), 
+                                    home: home, 
+                                    away: away, 
                                     time: timeEl ? timeEl.innerText.trim() : "N/A", 
                                     league: leagueText, 
                                     url: linkEl ? linkEl.href : "", 
@@ -119,9 +122,12 @@ async def extract_league_matches(page: Page, target_date: str) -> List[Dict]:
 
                 # Retry Logic for non-first leagues if empty
                 if not matches_in_section and i > 0:
-                     print(f"    -> {league_text}: No matches found. Retrying expansion with alternative click (Header Text)...")
-                     await page.locator(f'h4:has-text("{league_text}")').click()
-                     await asyncio.sleep(1.0)
+                     print(f"    -> {league_text}: No matches found. Retrying expansion with alternative click (Exact Header Text)...")
+                     try:
+                         await page.locator(f"h4:text-is('{league_text}')").first.click(timeout=3000)
+                     except:
+                         pass
+                     await asyncio.sleep(0.5)
                      
                      # Re-evaluate
                      matches_container = await header_locator.evaluate_handle('(el) => el.nextElementSibling')
@@ -136,10 +142,13 @@ async def extract_league_matches(page: Page, target_date: str) -> List[Dict]:
                                 const timeEl = card.querySelector(selectors.time_sel);
                                 const linkEl = card.querySelector(selectors.match_url_sel) || card.closest('a');
                                 
-                                if (homeEl && awayEl) {
+                                const home = homeEl ? homeEl.innerText.trim() : "";
+                                const away = awayEl ? awayEl.innerText.trim() : "";
+
+                                if (home && away) {
                                     results.push({ 
-                                        home: homeEl.innerText.trim(), 
-                                        away: awayEl.innerText.trim(), 
+                                        home: home, 
+                                        away: away, 
                                         time: timeEl ? timeEl.innerText.trim() : "N/A", 
                                         league: leagueText, 
                                         url: linkEl ? linkEl.href : "", 
@@ -159,6 +168,7 @@ async def extract_league_matches(page: Page, target_date: str) -> List[Dict]:
                             "leagueText": league_text, 
                             "targetDate": target_date
                         })
+
 
                 # Result Handling
                 if matches_in_section:

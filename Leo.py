@@ -36,12 +36,17 @@ PLAYWRIGHT_DEFAULT_TIMEOUT = 3600000
 server_process = None
 
 def is_server_running(base_url="http://127.0.0.1:8080"):
-    """Check if the AI server is responsive."""
-    for endpoint in ["/health", "/v1/models", "/"]:
+    """Check if the AI server is responsive and model is loaded."""
+    for endpoint in ["/v1/models", "/health", "/"]:
         try:
             url = f"{base_url}{endpoint}"
-            requests.get(url, timeout=1)
-            return True
+            resp = requests.get(url, timeout=1)
+            # 503 means server is up but model is still loading
+            if resp.status_code == 200:
+                return True
+            if resp.status_code == 503:
+                # Log that it's loading but not ready
+                return False
         except:
             continue
     return False
@@ -139,7 +144,7 @@ async def main():
                 # --- PHASE 0: REVIEW (Observe past actions) ---
                 print("\n   [Phase 0] Checking for past matches to review...")
                 from Helpers.DB_Helpers.review_outcomes import run_review_process
-                await run_review_process(p)
+                #await run_review_process(p)
 
                 # Print prediction accuracy report
                 print("   [Phase 0] Analyzing prediction accuracy across all reviewed matches...")
@@ -149,11 +154,11 @@ async def main():
 
                 # --- PHASE 1: ANALYSIS (Observe and Decide) ---
                 print("\n   [Phase 1] Starting analysis engine (Flashscore)...")
-                await run_flashscore_analysis(p)
+                #await run_flashscore_analysis(p)
 
                 # --- PHASE 2: BOOKING (Act) ---
                 print("\n   [Phase 2] Starting booking process (Football.com)...")
-                #await run_football_com_booking(p)
+                await run_football_com_booking(p)
 
                 # --- PHASE 3: SLEEP (The wait) ---
                 print("\n   --- LEO: Cycle Complete. ---")

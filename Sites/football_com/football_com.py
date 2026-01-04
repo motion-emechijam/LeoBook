@@ -17,7 +17,14 @@ from .navigator import load_or_create_session, navigate_to_schedule, select_targ
 from .extractor import extract_league_matches
 from .matcher import match_predictions_with_site, filter_pending_predictions
 from .booker import place_bets_for_matches, finalize_accumulator, clear_bet_slip
-from Helpers.DB_Helpers.db_helpers import PREDICTIONS_CSV
+from Helpers.DB_Helpers.db_helpers import (
+    PREDICTIONS_CSV, 
+    update_prediction_status, 
+    load_site_matches, 
+    save_site_matches, 
+    update_site_match_status,
+    get_site_match_id
+)
 from Helpers.utils import log_error_state
 from Helpers.monitor import PageMonitor
 
@@ -76,7 +83,7 @@ async def run_football_com_booking(playwright: Playwright):
     try:
         context = await playwright.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
-            headless=False,
+            headless=True,
             args=[
                 "--disable-dev-shm-usage", 
                 "--no-sandbox", 
@@ -86,7 +93,7 @@ async def run_football_com_booking(playwright: Playwright):
             ],
             viewport={'width': 375, 'height': 812}, # Taller viewport for modern mobile
             user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
-            timeout=60000 # Increased timeout
+            timeout=120000 # Further increased timeout
         )
     except Exception as launch_e:
         print(f"  [CRITICAL ERROR] Failed to launch browser: {launch_e}")
@@ -124,43 +131,81 @@ async def run_football_com_booking(playwright: Playwright):
 
         # 4. Process each day's predictions
         for target_date, day_predictions in sorted(predictions_by_date.items()):
-            # Check browser/page state 
             if not page or page.is_closed():
                 print("  [Fatal] Browser connection lost or page closed. Aborting cycle.")
                 break
 
-            print(f"\n--- Booking for Date: {target_date} ---")
+            print(f"\n--- Booking Process for Date: {target_date} ---")
 
-            # Ensure we're on the main football page
-            print("  [Navigation] Navigating to schedule...")
-            try:
-                await navigate_to_schedule(page)
-                await log_page_title(page, "Navigated to Schedule")
-                # await asyncio.sleep(5)  # Optimization: removed fixed sleep, reliance on navigate_to_schedule internal waits
-            except Exception as nav_e:
-                print(f"  [Error] Navigation failed for {target_date}: {nav_e}. Trying url navigation...")
-                await page.goto("https://www.football.com/ng/m/sport/football", wait_until='domcontentloaded', timeout=WAIT_FOR_LOAD_STATE_TIMEOUT)
-                await log_page_title(page, "Navigated (Fallback)")
-                continue
+            # --- REGISTRY CHECK (Optimization) ---
+            cached_site_matches = load_site_matches(target_date)
+            matched_urls = {} # fixture_id -> url
+            unmatched_predictions = []
 
-            # Navigate to schedule and select date
+            for pred in day_predictions:
+                fid = str(pred.get('fixture_id'))
+                # Check if this prediction is already matched in our registry
+                cached_match = next((m for m in cached_site_matches if m.get('fixture_id') == fid), None)
+                
+                if cached_match and cached_match.get('url'):
+                    if cached_match.get('booking_status') == 'booked':
+                         print(f"  [Registry] Prediction {fid} already booked. Skipping.")
+                    else:
+                         matched_urls[fid] = cached_match.get('url')
+                         print(f"  [Registry] Found cached URL for {fid}: {cached_match.get('url')}")
+                else:
+                    unmatched_predictions.append(pred)
 
-            if not await select_target_date(page, target_date):
-                print(f"[Info] Date {target_date} not available for selection. Skipping.")
-                continue
+            # If we still have unmatched predictions, we MUST scrape
+            if unmatched_predictions:
+                print(f"  [Registry] {len(unmatched_predictions)} predictions need matching. Scraping schedule...")
+                try:
+                    await navigate_to_schedule(page)
+                    if not await select_target_date(page, target_date):
+                        print(f"  [Info] Date {target_date} not available. Skipping.")
+                        continue
 
-            # Extract matches
-            site_matches = await extract_league_matches(page, target_date)
+                    # Extract & Save to Registry
+                    site_matches = await extract_league_matches(page, target_date)
+                    if site_matches:
+                        save_site_matches(site_matches)
+                        # Refresh cache after save
+                        cached_site_matches = load_site_matches(target_date)
+                except Exception as nav_e:
+                    print(f"  [Error] Extraction failed for {target_date}: {nav_e}")
+                    continue
 
-            # Match with predictions
-            matched_urls = await match_predictions_with_site(day_predictions, site_matches)
+                # Run Matcher on the newly extracted/stored matches
+                new_mappings = await match_predictions_with_site(unmatched_predictions, cached_site_matches)
+                
+                # Update Registry with newly matched fixture_ids
+                for fid, url in new_mappings.items():
+                    matched_urls[fid] = url
+                    # Find which site match this belongs to and update it
+                    site_match = next((m for m in cached_site_matches if m.get('url') == url), None)
+                    if site_match:
+                        update_site_match_status(site_match['site_match_id'], 'pending', fixture_id=fid)
 
-            # Place bets
+            # --- BET PLACEMENT ---
             if matched_urls:
-                await place_bets_for_matches(page, matched_urls, day_predictions, target_date)
+                print(f"  [Action] Proceeding to book {len(matched_urls)} matched predictions...")
+                # We need to pass the full prediction dicts for those that are matched
+                to_book_preds = [p for p in day_predictions if str(p.get('fixture_id')) in matched_urls]
+                
+                # Execute Booking
+                # Note: place_bets_for_matches returns results or updates status
+                await place_bets_for_matches(page, matched_urls, to_book_preds, target_date)
+                
+                # Final Sync: Update our local registry if booking were successful
+                # (This is also handled inside place_bets_for_matches usually, 
+                # but we ensure the registry reflects the 'booked' status)
+                for fid in matched_urls.keys():
+                    # We check predictions.csv status to see if it changed to 'booked'
+                    # Or we could have place_bets_for_matches return the status.
+                    # For now, let's assume if it finished without error, we check later.
+                    pass 
             else:
-                print(f"[Info] No bets selected for {target_date}.")
-                continue
+                print(f"  [Info] No matches to book for {target_date}.")
                 
     except Exception as e:
         print(f"[FATAL BOOKING ERROR] {e}")

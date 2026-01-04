@@ -47,6 +47,16 @@ class SelectorManager:
 
         # 3. Auto-Healing (with graceful fallback)
         if not is_valid:
+            # --- NEW: Context Verification ---
+            # Verify if we are actually on the page we think we are before healing.
+            from .page_analyzer import PageAnalyzer
+            content_is_correct = await PageAnalyzer.verify_page_context(page, context_key)
+            
+            if not content_is_correct:
+                curr_url = page.url
+                print(f"    [Auto-Heal Mismatch] Aborting repair for '{context_key}'. Page mismatch: {curr_url}")
+                return str(selector or "")
+
             print(
                 f"    [Auto-Heal] Selector '{element_key}' in '{context_key}' invalid/missing. Initiating AI repair..."
             )

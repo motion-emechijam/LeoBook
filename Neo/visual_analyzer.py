@@ -509,8 +509,8 @@ class VisualAnalyzer:
             r"<style.*?</style>", "", html_content, flags=re.DOTALL | re.IGNORECASE
         )
 
-        # Truncate if too long
-        return html_content[:12000]
+        # Truncate aggressively to fit within 8192 context (including instructions)
+        return html_content[:5000]
 
     @staticmethod
     async def map_visuals_to_selectors(

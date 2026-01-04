@@ -90,18 +90,35 @@ def parse_match_datetime(date_str: str, time_str: str, is_site_format: bool = Fa
     date_str = date_str.strip()
 
     if is_site_format:
-        if ',' not in time_str:
-            return None
+        # Site time_str can be "14:00", "Live", "45'", or "17 Dec, 20:30"
         try:
-            parts = time_str.split(',', 1)
-            site_date_part = parts[0].strip()   # e.g. "17 Dec"
-            site_time_part = parts[1].strip()   # e.g. "20:30"
+            # Case 1: "17 Dec, 20:30"
+            if ',' in time_str:
+                parts = time_str.split(',', 1)
+                site_date_part = parts[0].strip()   # e.g. "17 Dec"
+                site_time_part = parts[1].strip()   # e.g. "20:30"
+                
+                # Try to parse the date part to get day and month
+                # Football.com uses "17 Dec"
+                dt_site_date = datetime.strptime(site_date_part, "%d %b")
+                dt_site_time = datetime.strptime(site_time_part, "%H:%M")
+                
+                # Use year from date_str (targetDate)
+                target_year = datetime.strptime(date_str, "%d.%m.%Y").year
+                return datetime(target_year, dt_site_date.month, dt_site_date.day, dt_site_time.hour, dt_site_time.minute)
 
-            year = datetime.strptime(date_str, "%d.%m.%Y").year
+            # Case 2: "14:00"
+            if ':' in time_str:
+                dt_time = datetime.strptime(time_str.strip(), "%H:%M")
+                dt_date = datetime.strptime(date_str, "%d.%m.%Y")
+                return datetime(dt_date.year, dt_date.month, dt_date.day, dt_time.hour, dt_time.minute)
 
-            dt_str = f"{site_date_part} {year} {site_time_part}"
-            return datetime.strptime(dt_str, "%d %b %Y %H:%M")
-        except (ValueError, IndexError):
+            # Case 3: "Live", "45'", etc. (Treat as "now" on the target date)
+            dt_date = datetime.strptime(date_str, "%d.%m.%Y")
+            return datetime(dt_date.year, dt_date.month, dt_date.day, datetime.now().hour, datetime.now().minute)
+
+        except Exception as e:
+            # print(f"    [Time Parse Error] Failed to parse site time '{time_str}' with date '{date_str}': {e}")
             return None
     else:
         try:
@@ -132,10 +149,6 @@ async def match_predictions_with_site(day_predictions: List[Dict], site_matches:
     day_predictions = future_predictions
     print(f"  [Matcher] Attempting to match {len(day_predictions)} future predictions.")
 
-    if not site_matches:
-        print("  [Matcher] No site matches provided.")
-        return {}
-
     # Initialise LLM matcher once if available
     llm_matcher: Optional[Any] = None
     if HAS_LLM and llm_module:
@@ -145,7 +158,21 @@ async def match_predictions_with_site(day_predictions: List[Dict], site_matches:
         except Exception as e:
             print(f"  [Matcher] Failed to initialise LLM matcher: {e}")
 
+    # --- Pre-filter Site Matches ---
+    # Remove matches with empty or suspiciously short names (e.g. " vs ")
+    valid_site_matches = []
+    for m in site_matches:
+        h, a = m.get('home', '').strip(), m.get('away', '').strip()
+        if len(h) < 2 or len(a) < 2:
+            continue
+        valid_site_matches.append(m)
+    
+    if len(valid_site_matches) < len(site_matches):
+        print(f"  [Matcher] Filtered out {len(site_matches) - len(valid_site_matches)} invalid site matches (empty names).")
+    site_matches = valid_site_matches
+
     mapping: Dict[str, str] = {}
+
     used_site_urls = set()
 
     for pred in day_predictions:
@@ -160,9 +187,8 @@ async def match_predictions_with_site(day_predictions: List[Dict], site_matches:
 
         pred_utc_dt = parse_match_datetime(pred_date, pred_time, is_site_format=False)
 
-        best_match: Optional[Dict] = None
-        best_score = 0.0
-
+        # Phase 1: Score all candidates
+        candidates = []
         for site_match in site_matches:
             site_url = site_match.get('url', '')
             if not site_url or site_url in used_site_urls:
@@ -175,11 +201,9 @@ async def match_predictions_with_site(day_predictions: List[Dict], site_matches:
             site_time = site_match.get('time', '').strip()
 
             site_full_str = build_match_string(site_region_league, site_home, site_away, site_date, site_time)
-
-            # Primary holistic similarity on the full combined string
             full_similarity = calculate_similarity(pred_full_str, site_full_str)
 
-            # Datetime bonus (converted to UTC)
+            # Datetime bonus
             site_display_dt = parse_match_datetime(site_date, site_time, is_site_format=True)
             site_utc_dt = (site_display_dt - timedelta(hours=1)) if site_display_dt else None
 
@@ -187,49 +211,62 @@ async def match_predictions_with_site(day_predictions: List[Dict], site_matches:
             if pred_utc_dt and site_utc_dt:
                 time_diff_minutes = abs((pred_utc_dt - site_utc_dt).total_seconds()) / 60
                 if time_diff_minutes <= 60:
-                    time_bonus = 0.3
-                elif time_diff_minutes <= 180:
-                    time_bonus = 0.15
-
+                    time_bonus = 0.35 # Increased weights
+                elif time_diff_minutes <= 120:
+                    time_bonus = 0.20
+            
             base_score = full_similarity
             total_score = base_score + time_bonus
+            
+            candidates.append({
+                'match': site_match,
+                'total_score': total_score,
+                'base_score': base_score,
+                'full_str': site_full_str,
+                'utc_dt': site_utc_dt
+            })
 
-            # LLM boost for borderline cases
-            llm_confirmed = False
-            if llm_matcher and 0.65 <= base_score <= 0.90 and best_score < 0.9:
-                print(f"    [LLM Check] Asking AI if prediction '{pred_home} vs {pred_away}' ({pred_region_league}) "
-                      f"matches site '{site_home} vs {site_away}' ({site_region_league})")
-                if llm_matcher.is_match(
-                    f"{pred_home} vs {pred_away} in {pred_region_league}",
-                    f"{site_home} vs {site_away} in {site_region_league}",
-                    league=pred_region_league
-                ):
-                    print("      -> AI confirmed match!")
-                    total_score = 0.99
-                    llm_confirmed = True
-                else:
-                    print("      -> AI rejected match.")
-                    total_score *= 0.4
+        # Phase 2: Select Top Candidate
+        if not candidates:
+            print(f"  ✗ No candidates found for prediction {pred_id} ({pred_home} vs {pred_away})")
+            continue
+            
+        candidates.sort(key=lambda x: x['total_score'], reverse=True)
+        top = candidates[0]
+        
+        # Phase 3: LLM Verification (Only for the single best candidate if borderline)
+        final_match_found = False
+        
+        if top['total_score'] >= 0.92:
+            final_match_found = True
+            print(f"    [Matcher] Strong match found: {pred_home} vs {pred_away} (Score: {top['total_score']:.3f})")
+        elif top['total_score'] >= 0.65 and llm_matcher:
+            # Borderline case: Ask AI
+            m = top['match']
+            print(f"    [LLM Check] Verifying borderline candidate: Pred '{pred_home} vs {pred_away}' ↔ Site '{m['home']} vs {m['away']}' (Score: {top['total_score']:.3f})")
+            if await llm_matcher.is_match(
+                f"{pred_home} vs {pred_away} in {pred_region_league}",
+                f"{m['home']} vs {m['away']} in {m['league']}",
+                league=pred_region_league
+            ):
+                print("      -> AI confirmed match!")
+                final_match_found = True
+            else:
+                print("      -> AI rejected match.")
 
-            # Debug output
-            if total_score > 0.6:
-                time_info = f"Pred:{pred_utc_dt} SiteUTC:{site_utc_dt}" if pred_utc_dt and site_utc_dt else "Time parse failed"
-                print(f"    [Candidate] FullStrSim: {full_similarity:.3f} | Total: {total_score:.3f} "
-                      f"| {pred_home} vs {pred_away} ({pred_region_league}) ↔ {site_home} vs {site_away} ({site_region_league}) {time_info}")
-
-            # Acceptance threshold
-            if total_score > best_score and total_score >= 0.80:
-                best_score = total_score
-                best_match = site_match
-
-        if best_match:
-            mapping[pred_id] = best_match['url']
-            used_site_urls.add(best_match['url'])
+        if final_match_found:
+            site_url = top['match'].get('url')
+            mapping[pred_id] = site_url
+            used_site_urls.add(site_url)
             time_str = pred_utc_dt.strftime('%Y-%m-%d %H:%M') if pred_utc_dt else 'N/A'
             print(f"  ✓ Matched prediction {pred_id} ({pred_home} vs {pred_away} @ {time_str}) "
-                  f"→ {best_match.get('home')} vs {best_match.get('away')} (score {best_score:.3f})")
+                  f"→ {top['match'].get('home')} vs {top['match'].get('away')} (score {top['total_score']:.3f})")
         else:
-            print(f"  ✗ No reliable match found for prediction {pred_id} ({pred_home} vs {pred_away})")
+            if top['total_score'] > 0.5: # Only print if there was a somewhat reasonable candidate
+                print(f"  ✗ No reliable match found for prediction {pred_id} ({pred_home} vs {pred_away}). Top candidate score {top['total_score']:.3f} was rejected or too low.")
+            else:
+                print(f"  ✗ No reliable match found for prediction {pred_id} ({pred_home} vs {pred_away}). All candidates too low.")
+
 
     print(f"  [Matcher] Matching complete: {len(mapping)}/{len(day_predictions)} predictions matched.")
     return mapping

@@ -86,3 +86,6 @@ Mind/
 !Mind/Modelfile*
 !Mind/LICENSE*
 
+# Chrome Profile Data
+DB/ChromeData*/
+

@@ -75,7 +75,7 @@ async def load_or_create_session(context: BrowserContext) -> Tuple[BrowserContex
 
         
         # Validate session by checking for login elements
-        login_sel = await get_selector_auto(page, "fb_login_page", "top_right_login")
+        login_sel = await get_selector_auto(page, "fb_global", "top_right_login")
         
         needs_login = False
         if login_sel:

@@ -4373,7 +4373,7 @@
         "mid_hot_league_category_item": "div.categories-container > div.categories > .category",
         "mid_hot_league_category_icon": "div.categories-container > div.categories > .category img",
         "mid_hot_league_category_name": "div.categories-container > div.categories > .category h1.tournament-name",
-        "match_card_odds_value_X": "div.m-featured-match-card-container .outcome-row > div:nth-child(2) span.un-text-encore-brand-secondary",
+        "match_card_odds_value_y": "div.m-featured-match-card-container .outcome-row > div:nth-child(2) span.un-text-encore-brand-secondary",
         "match_card_odds_label_1": "div.m-featured-match-card-container div.outcome-row > div:nth-child(1) span.un-text-encore-text-type-one-tertiary",
         "match_card_odds_label_X": "div.m-featured-match-card-container .outcome-row > div:nth-child(2) span:has-text(\"X\")",
         "match_card_odds_label_2": "div.m-featured-match-card-container div.outcome-row > div:nth-child(3) span.un-text-encore-text-type-one-tertiary",
@@ -6056,5 +6056,13 @@
         "betslip_count_badge": "div.open-bet-icon + div.circle",
         "betslip_clear_all": ".m-icon-delete",
         "outcome_row_container": "div.m-table-row"
+    },
+    "fb_global": {
+        "betslip_count_badge": "div.open-bet-icon + div.circle",
+        "slip_trigger_button": "div[data-op='betslip-multi-min-count']",
+        "betslip_clear_all": ".m-icon-delete",
+        "confirm_bet_button": "button:has-text('Confirm')",
+        "top_right_login": ".m-btn-login",
+        "cookie_accept_button": "#onetrust-accept-btn-handler"
     }
 }
